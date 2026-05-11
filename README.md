@@ -1,6 +1,13 @@
 # Drcom .NET for JLU
 
+[![Release](https://img.shields.io/github/v/release/ZincGluxx/drcom-net-client?style=flat-square&color=blue)](https://github.com/ZincGluxx/drcom-net-client/releases/latest)
+[![C#](https://img.shields.io/badge/Language-C%23-239120?style=flat-square&logo=c-sharp&logoColor=white)](https://docs.microsoft.com/en-us/dotnet/csharp/)
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
+[![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)]()
+
 一款基于 **.NET 8 (Windows Forms)** 开发的吉林大学 (JLU) 校园网 Dr.COM 登录客户端。
+
+👉 **[点击这里跳转到 Latest Release 下载最新安装包](https://github.com/ZincGluxx/drcom-net-client/releases/latest)**
 
 本项目的核心认证逻辑移植自广为流传的第三方 Python 认证脚本 (`newclient.py`)，在保证协议通信稳定的前提下，为 Windows 用户提供了原生的图形化图形界面，并实现了极其现代化的打包分发体验。
 
