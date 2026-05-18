@@ -1,0 +1,14 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CampusNetworkLogin.App"
+             RequestedThemeVariant="Light">
+
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+
+    <!-- 全局样式覆盖 -->
+    <Application.Resources>
+        <SolidColorBrush x:Key="ThemeAccentBrush" Color="#508CFF"/>
+    </Application.Resources>
+</Application>

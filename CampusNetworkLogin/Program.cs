@@ -1,39 +1,30 @@
+using Avalonia;
 using System;
 using System.Threading;
-using System.Windows.Forms;
-using CampusNetworkLogin.Forms;
 
 namespace CampusNetworkLogin;
 
-internal static class Program
+class Program
 {
-    /// <summary>
-    /// 应用程序入口点
-    /// </summary>
+    // Initialization code. Don't use any Avalonia, third-party APIs or any
+    // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
+    // yet and stuff might break.
     [STAThread]
-    static void Main()
+    public static void Main(string[] args)
     {
         // 确保只有一个实例运行
         using var mutex = new Mutex(true, "DrcomNET-SingleInstance", out var createdNew);
         if (!createdNew)
-        {
-            MessageBox.Show("Drcom .NET 已在运行中！", "提示",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
-        }
 
-        ApplicationConfiguration.Initialize();
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-
-        try
-        {
-            Application.Run(new MainForm());
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"程序异常: {ex.Message}\n{ex.StackTrace}",
-                "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        BuildAvaloniaApp()
+            .StartWithClassicDesktopLifetime(args);
     }
+
+    // Avalonia configuration, don't remove; also used by visual designer.
+    public static AppBuilder BuildAvaloniaApp()
+        => AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
 }

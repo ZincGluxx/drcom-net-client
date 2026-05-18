@@ -1,0 +1,148 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="400"
+        Width="300" Height="400"
+        MinWidth="260" MinHeight="360"
+        x:Class="CampusNetworkLogin.Views.MainWindow"
+        Icon="avares://Drcom NET/Resources/icon.ico"
+        Title="校园网登录"
+        WindowStartupLocation="CenterScreen"
+        Background="Transparent"
+        SystemDecorations="None"
+        WindowState="Normal">
+
+    <Window.Styles>
+        <Style Selector="TextBox">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style Selector="Button.winbtn">
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="Button.primarybtn">
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.smallbtn">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+    </Window.Styles>
+
+    <Border Background="#F4F6F8" CornerRadius="10">
+        <Grid RowDefinitions="40,*">
+            <!-- 标题栏 -->
+            <Border Grid.Row="0" Background="White" CornerRadius="10,10,0,0"
+                    BorderThickness="0,0,0,1" BorderBrush="#E8ECF0" Name="TitleBar">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="校园网登录" FontSize="12" FontWeight="SemiBold"
+                               Foreground="#1E293B" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,10,0"
+                                VerticalAlignment="Center" Spacing="4">
+                        <Button x:Name="MinBtn" Content="─" Classes="winbtn"
+                                Background="#F1F5F9" Foreground="#475569" Click="MinBtn_Click"/>
+                        <Button x:Name="CloseBtn" Content="✕" Classes="winbtn"
+                                Background="#FEE2E2" Foreground="#EF4444" Click="CloseBtn_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" Margin="12,10,12,12" RowDefinitions="Auto,*,Auto">
+                <!-- Tab切换栏 -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="2"
+                            HorizontalAlignment="Center" Margin="0,0,0,10">
+                    <Button x:Name="TabLogin" Content="登录" Classes="smallbtn"
+                            Width="60" Background="#EFF6FF" Foreground="#2563EB"
+                            Click="TabLogin_Click"/>
+                    <Button x:Name="TabConfig" Content="配置" Classes="smallbtn"
+                            Width="60" Background="Transparent" Foreground="#64748B"
+                            Click="TabConfig_Click"/>
+                    <Button x:Name="TabLog" Content="日志" Classes="smallbtn"
+                            Width="60" Background="Transparent" Foreground="#64748B"
+                            Click="TabLog_Click"/>
+                </StackPanel>
+
+                <!-- 登录页 -->
+                <Grid Grid.Row="1" x:Name="PageLogin" RowDefinitions="Auto,Auto,*,Auto">
+                    <TextBox Grid.Row="0" x:Name="UsernameField" Watermark="校园网邮箱" Height="38"/>
+                    <Button Grid.Row="1" x:Name="LoginBtn" Content="登 录" Classes="primarybtn"
+                            Background="#3B82F6" Foreground="White" Margin="0,10,0,0"
+                            Click="LoginBtn_Click"/>
+                    <Button Grid.Row="1" x:Name="LogoutBtn" Content="下 线" Classes="primarybtn"
+                            Background="#EF4444" Foreground="White" Margin="0,10,0,0"
+                            Click="LogoutBtn_Click" IsVisible="False"/>
+                    <Border Grid.Row="3" Background="#F8FAFC" CornerRadius="10" Padding="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="StatusIndicator" Text="● 未连接"
+                                       FontWeight="SemiBold" Foreground="#EF4444" FontSize="12"/>
+                            <TextBlock x:Name="IpStatusText" Text="IP: --" Foreground="#64748B" FontSize="11"/>
+                            <TextBlock x:Name="MacStatusText" Text="MAC: --" Foreground="#64748B" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- 配置页 -->
+                <Grid Grid.Row="1" x:Name="PageConfig" IsVisible="False" RowDefinitions="Auto,*,Auto">
+                    <StackPanel Grid.Row="0" Spacing="10">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="邮箱" Foreground="#475569" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBox x:Name="ConfigUsernameField" Watermark="输入邮箱" Height="36"/>
+                        </StackPanel>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="密码" Foreground="#475569" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBox x:Name="PasswordField" PasswordChar="●" Height="36"/>
+                        </StackPanel>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="服务器" Foreground="#475569" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBox x:Name="ServerField" Text="10.100.61.3" Height="36"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Spacing="8" Margin="0,10,0,0">
+                        <CheckBox x:Name="AutoLoginCheck" Content="自动登录" Foreground="#475569" FontSize="12"/>
+                        <CheckBox x:Name="AutoStartCheck" Content="开机自启" Foreground="#475569" FontSize="12"/>
+                        <Button x:Name="SaveBtn" Content="保存" Classes="smallbtn"
+                                Background="#10B981" Foreground="White" Margin="0,6,0,0"
+                                Click="SaveBtn_Click"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- 日志页 -->
+                <Grid Grid.Row="1" x:Name="PageLog" IsVisible="False" RowDefinitions="Auto,*">
+                    <Border Grid.Row="1" Background="#FAFBFC" CornerRadius="8" Padding="10">
+                        <TextBox x:Name="LogBox" IsReadOnly="True" TextWrapping="Wrap"
+                                 AcceptsReturn="True" FontFamily="Consolas" FontSize="11"
+                                 Background="Transparent" Foreground="#334155"
+                                 BorderThickness="0" Padding="0"/>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

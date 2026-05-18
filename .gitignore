@@ -483,7 +483,12 @@ $RECYCLE.BIN/
 
 *.zip
 *.exe
-CampusNetworkLogin/dotnet_runtime/
-CampusNetworkLogin/standalone_exe/
-CampusNetworkLogin/installer/
-CampusNetworkLogin/publish_fd/
+
+# 项目特定：发布/安装产物
+publish/
+publish_fd/
+installer/
+
+# 运行时日志
+crash.log
+drcom_debug.log

@@ -1,9 +1,7 @@
 using System;
 using System.Linq;
-using System.Management;
 using System.Net;
 using System.Net.NetworkInformation;
-using System.Runtime.InteropServices;
 
 namespace CampusNetworkLogin.Services;
 
@@ -19,11 +17,21 @@ public class NetworkInfoService
     {
         try
         {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            var ip = host.AddressList.FirstOrDefault(a =>
-                a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
-                !IPAddress.IsLoopback(a));
-            return ip?.ToString() ?? "0.0.0.0";
+            var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                            n.NetworkInterfaceType != NetworkInterfaceType.Loopback);
+
+            foreach (var iface in interfaces)
+            {
+                var ipInfo = iface.GetIPProperties().UnicastAddresses
+                    .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                
+                if (ipInfo != null)
+                {
+                    return ipInfo.Address.ToString();
+                }
+            }
+            return "0.0.0.0";
         }
         catch
         {

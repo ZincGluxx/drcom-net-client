@@ -45,8 +45,10 @@ public class DrcomAuthService : IDisposable
     public bool IsLoggedIn => _loggedIn;
     public bool IsRunning => _running;
 
-    public event Action<string>? OnLog;
+        public event Action<string>? OnLog;
     public event Action<bool>? OnConnectionChanged;
+
+    private void LogMessage(string message) => OnLog?.Invoke(message);
 
     public void UpdateConfig(
         string server, string username, string password,
@@ -111,19 +113,21 @@ public class DrcomAuthService : IDisposable
         OnConnectionChanged?.Invoke(false);
     }
 
-    private void MainLoop(CancellationToken token)
+        private void MainLoop(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             try
             {
                 CreateSocket();
+                LogMessage("正在获取认证挑战...");
                 var tail = Login(_username, _password, _serverIp, token);
                 if (token.IsCancellationRequested) break;
 
                 _tail = tail;
                 _loggedIn = true;
                 OnConnectionChanged?.Invoke(true);
+                LogMessage("登录成功，进入保活阶段");
 
                 EmptySocketBuffer();
                 KeepAlive1(_salt, _tail, _password, _serverIp, token);
@@ -132,7 +136,17 @@ public class DrcomAuthService : IDisposable
                 KeepAlive2(_salt, _tail, _password, _serverIp, token);
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception) {
+            catch (TimeoutException ex)
+            {
+                LogMessage($"连接超时：{ex.Message}");
+                _loggedIn = false;
+                OnConnectionChanged?.Invoke(false);
+                CloseSocket();
+                if (!token.IsCancellationRequested) Thread.Sleep(3000);
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"登录失败：{ex.Message}");
                 _loggedIn = false;
                 OnConnectionChanged?.Invoke(false);
                 CloseSocket();
@@ -162,7 +176,7 @@ public class DrcomAuthService : IDisposable
 
 
 
-            try
+                        try
             {
                 SendTo(packet, server);
                 var (data, _) = ReceiveFrom(token);
@@ -171,10 +185,19 @@ public class DrcomAuthService : IDisposable
                 {
                     var salt = new byte[4];
                     Array.Copy(data, 4, salt, 0, 4);
+                    LogMessage("挑战码获取成功");
                     return salt;
                 }
+                LogMessage("挑战码响应格式异常，重试中...");
             }
-            catch (Exception) { }
+            catch (TimeoutException)
+            {
+                LogMessage("挑战码请求超时，重试中...");
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"挑战码请求异常：{ex.Message}");
+            }
         }
         throw new OperationCanceledException();
     }
@@ -188,7 +211,7 @@ public class DrcomAuthService : IDisposable
 
             var packet = BuildLoginPacket(salt, username, password, _mac);
 
-            try
+                        try
             {
                 SendTo(packet, server);
                 var (data, _) = ReceiveFrom(token);
@@ -200,12 +223,20 @@ public class DrcomAuthService : IDisposable
                         Array.Copy(data, 23, tail, 0, 16);
                     else if (data.Length >= 22)
                         Array.Copy(data, data.Length - 22, tail, 0, Math.Min(16, data.Length - 22));
+                    LogMessage("登录认证响应已接收");
                     return tail;
                 }
+                LogMessage($"登录认证响应异常 (data[0]={data[0]:X2})，3秒后重试...");
                 Thread.Sleep(token.IsCancellationRequested ? 0 : 3000);
             }
-            catch (Exception)
+            catch (TimeoutException)
             {
+                LogMessage("登录认证请求超时，3秒后重试...");
+                Thread.Sleep(token.IsCancellationRequested ? 0 : 3000);
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"登录认证异常：{ex.Message}");
                 Thread.Sleep(token.IsCancellationRequested ? 0 : 3000);
             }
         }
@@ -319,6 +350,7 @@ public class DrcomAuthService : IDisposable
         // 鎸佺画淇濇椿寰幆
 
         var i = svrNum;
+        int failureCount = 0;
 
         while (!token.IsCancellationRequested)
         {
@@ -350,15 +382,18 @@ public class DrcomAuthService : IDisposable
 
                 i = (i + 2) % 0xFF;
 
-
                 for (int w = 0; w < 20 && !token.IsCancellationRequested; w++)
                     Thread.Sleep(1000);
 
                 if (!token.IsCancellationRequested)
                     KeepAlive1(salt, tail, password, server, token);
+                    
+                failureCount = 0;
             }
             catch (Exception)
             {
+                failureCount++;
+                if (failureCount > 3) throw;
 
                 Thread.Sleep(1000);
             }
@@ -615,8 +650,7 @@ public class DrcomAuthService : IDisposable
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
             {
-
-                if (token.IsCancellationRequested) throw;
+                throw new TimeoutException("Socket receive timeout");
             }
             catch (ObjectDisposedException)
             {
