@@ -1,138 +1,171 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Platform;
-using Avalonia.Threading;
 using Avalonia.Media;
-using System;
-using System.Threading.Tasks;
+using Avalonia.Threading;
+using CampusNetworkLogin.Helpers;
 using CampusNetworkLogin.Models;
 using CampusNetworkLogin.Services;
-using System.Collections.Generic;
-using System.IO;
+using System;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace CampusNetworkLogin.Views;
 
 public partial class MainWindow : Window
 {
+    private readonly Task<ConfigModel> _configLoadTask;
     private readonly ConfigService _configService = new();
     private readonly AutoStartService _autoStartService = new();
     private readonly DrcomAuthService _authService = new();
     private ConfigModel _config = new();
-    private bool _isLoggingIn = false;
-    private readonly List<string> _logLines = new();
-
-    // 托盘图标
+    private bool _isLoggingIn;
+    private bool _initialized;
+    private bool _autoStartHandlerAttached;
     private TrayIcon? _trayIcon;
 
-    // 分页按钮默认颜色
-    private static readonly SolidColorBrush TabActiveBg = new(Color.Parse("#EFF6FF"));
-    private static readonly SolidColorBrush TabActiveFg = new(Color.Parse("#2563EB"));
-    private static readonly SolidColorBrush TabInactiveBg = new(Colors.Transparent);
-    private static readonly SolidColorBrush TabInactiveFg = new(Color.Parse("#64748B"));
+    private ConfigPageView? _configPage;
+    private LogPageView? _logPage;
 
-        public MainWindow()
+    private readonly StringBuilder _logBuilder = new();
+    private int _logLineCount;
+    private const int MaxLogLines = 200;
+
+    private static readonly IBrush StatusConnected = new SolidColorBrush(Color.Parse("#34C759"));
+    private static readonly IBrush StatusDisconnected = new SolidColorBrush(Color.Parse("#FF453A"));
+    private static readonly IBrush StatusFailed = new SolidColorBrush(Color.Parse("#EF4444"));
+    private static readonly IBrush StatusOffline = new SolidColorBrush(Color.Parse("#64748B"));
+
+    public MainWindow() : this(Task.FromResult(new ConfigModel()))
     {
-        InitializeComponent();
-
-        InitializeTitleBarDrag();
-        SetupAuthEvents();
-
-        // 延迟初始化：避免窗口打开卡顿
-        Dispatcher.UIThread.Post(async () =>
-        {
-            LoadConfig();
-            ApplyConfigToUI();
-            AutoDetectNetworkInfo();
-            CreateTrayIcon();
-
-            if (_config.AutoLogin && !string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
-            {
-                await Task.Delay(500);
-                await DoLogin();
-            }
-        }, DispatcherPriority.Background);
     }
 
-            private void InitializeTitleBarDrag()
+    public MainWindow(Task<ConfigModel> configLoadTask)
     {
-        var titleBar = this.GetControl<Border>("TitleBar");
-        if (titleBar != null)
+        _configLoadTask = configLoadTask;
+        InitializeComponent();
+        SetupAuthEvents();
+        Opened += (_, _) => Dispatcher.UIThread.Post(() => Opacity = 1, DispatcherPriority.Render);
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        if (_initialized) return;
+        _initialized = true;
+        _ = InitializeAsync();
+    }
+
+    private async Task InitializeAsync()
+    {
+        var config = await _configLoadTask.ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            titleBar.PointerPressed += (s, e) => BeginMoveDrag(e);
+            _config = config;
+            ApplyConfigToUI();
+        }, DispatcherPriority.Background);
+
+        _ = RefreshNetworkInfoAsync();
+        Dispatcher.UIThread.Post(() => _ = CreateTrayIconAsync(), DispatcherPriority.Background);
+
+        if (_config.AutoLogin &&
+            !string.IsNullOrEmpty(_config.Username) &&
+            !string.IsNullOrEmpty(_config.Password))
+        {
+            Dispatcher.UIThread.Post(async () =>
+            {
+                await Task.Delay(800);
+                await DoLogin();
+            }, DispatcherPriority.Background);
         }
     }
 
-    // ========== 分页切换 ==========
-    private void SwitchToPage(Grid page, Button activeBtn)
+    private ConfigPageView EnsureConfigPage()
     {
-        PageLogin.IsVisible = false;
-        PageConfig.IsVisible = false;
-        PageLog.IsVisible = false;
-        page.IsVisible = true;
+        if (_configPage != null) return _configPage;
 
-        // 重置所有标签样式
-        TabLogin.Background = TabInactiveBg;
-        TabLogin.Foreground = TabInactiveFg;
-        TabConfig.Background = TabInactiveBg;
-        TabConfig.Foreground = TabInactiveFg;
-        TabLog.Background = TabInactiveBg;
-        TabLog.Foreground = TabInactiveFg;
+        _configPage = new ConfigPageView();
+        _configPage.SaveClicked += SaveBtn_Click;
+        ApplyConfigToConfigPage();
 
-        // 高亮当前标签
-        activeBtn.Background = TabActiveBg;
-        activeBtn.Foreground = TabActiveFg;
+        if (!_autoStartHandlerAttached)
+        {
+            _autoStartHandlerAttached = true;
+            _configPage.AutoStartCheck.IsCheckedChanged += (_, _) =>
+            {
+                try { _autoStartService.SetEnabled(_configPage.AutoStartCheck.IsChecked ?? false); }
+                catch { /* ignore */ }
+            };
+        }
+
+        return _configPage;
     }
 
-    private void TabLogin_Click(object? sender, RoutedEventArgs e) => SwitchToPage(PageLogin, TabLogin);
-    private void TabConfig_Click(object? sender, RoutedEventArgs e) => SwitchToPage(PageConfig, TabConfig);
-    private void TabLog_Click(object? sender, RoutedEventArgs e) => SwitchToPage(PageLog, TabLog);
+    private LogPageView EnsureLogPage()
+    {
+        if (_logPage != null) return _logPage;
 
-                /// <summary>
-        /// 创建系统托盘图标
-        /// </summary>
-        private void CreateTrayIcon()
+        _logPage = new LogPageView();
+        if (_logBuilder.Length > 0)
+            _logPage.LogText.Text = _logBuilder.ToString();
+
+        return _logPage;
+    }
+
+    private async Task RefreshNetworkInfoAsync()
+    {
+        await Task.Delay(200).ConfigureAwait(false);
+        var network = await Task.Run(NetworkInfoService.GetNetworkInfo).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+            ApplyNetworkInfo(network.Ip, network.Mac), DispatcherPriority.Background);
+    }
+
+    private async Task CreateTrayIconAsync()
+    {
+        await Task.Delay(1500).ConfigureAwait(false);
+
+        WindowIcon? icon = null;
+        try
         {
-            WindowIcon? icon = null;
-            try
+            var icoPath = await Task.Run(() =>
             {
-                                // 从输出目录加载图标
-                                var baseDir = System.AppContext.BaseDirectory;
-                                var icoPath = System.IO.Path.Combine(baseDir, "Resources", "icon.ico");
-                                // 回退到编译输出目录
-                                if (!System.IO.File.Exists(icoPath))
-                                {
-                                    icoPath = System.IO.Path.Combine(baseDir, "icon.ico");
-                                    if (!System.IO.File.Exists(icoPath))
-                                        icoPath = null;
-                                }
-                                if (icoPath != null && System.IO.File.Exists(icoPath))
-                                    icon = new WindowIcon(icoPath);
-            }
-            catch
-            {
-                // 托盘图标加载失败不影响主程序运行
-            }
+                var baseDir = AppContext.BaseDirectory;
+                var path = System.IO.Path.Combine(baseDir, "Resources", "icon.ico");
+                if (System.IO.File.Exists(path)) return path;
+                path = System.IO.Path.Combine(baseDir, "icon.ico");
+                return System.IO.File.Exists(path) ? path : null;
+            }).ConfigureAwait(false);
+
+            if (icoPath != null)
+                icon = new WindowIcon(icoPath);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_trayIcon != null) return;
 
             var menu = new NativeMenu();
-
             var showItem = new NativeMenuItem("显示窗口");
-            showItem.Click += (s, e) => ShowWindow();
+            showItem.Click += (_, _) => ShowFromTray();
             menu.Add(showItem);
 
             var loginItem = new NativeMenuItem("登录");
-            loginItem.Click += async (s, e) => await DoLogin();
+            loginItem.Click += async (_, _) => await DoLogin();
             menu.Add(loginItem);
 
             var logoutItem = new NativeMenuItem("断开连接");
-            logoutItem.Click += (s, e) => Disconnect();
+            logoutItem.Click += (_, _) => Disconnect();
             menu.Add(logoutItem);
-
             menu.Add(new NativeMenuItemSeparator());
 
             var quitItem = new NativeMenuItem("退出程序");
-            quitItem.Click += (s, e) => QuitApp();
+            quitItem.Click += (_, _) => QuitApp();
             menu.Add(quitItem);
 
             _trayIcon = new TrayIcon
@@ -142,94 +175,110 @@ public partial class MainWindow : Window
                 Menu = menu,
                 IsVisible = true
             };
+            _trayIcon.Clicked += (_, _) => ShowFromTray();
+        }, DispatcherPriority.Background);
+    }
 
-            // 点击托盘图标显示窗口
-            _trayIcon.Clicked += (s, e) => ShowWindow();
-        }
+    private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            BeginMoveDrag(e);
+    }
 
-    /// <summary>
-    /// 显示窗口（从托盘恢复）
-    /// </summary>
-    private void ShowWindow()
+    private void SwitchToPage(Control page, Button activeBtn)
+    {
+        PageHost.Content = page;
+        SetTabActive(TabLogin, activeBtn == TabLogin);
+        SetTabActive(TabConfig, activeBtn == TabConfig);
+        SetTabActive(TabLog, activeBtn == TabLog);
+    }
+
+    private static void SetTabActive(Button tab, bool active)
+    {
+        if (active) tab.Classes.Add("tab-active");
+        else tab.Classes.Remove("tab-active");
+    }
+
+    private void TabLogin_Click(object? sender, RoutedEventArgs e) => SwitchToPage(PageLogin, TabLogin);
+    private void TabConfig_Click(object? sender, RoutedEventArgs e) => SwitchToPage(EnsureConfigPage(), TabConfig);
+    private void TabLog_Click(object? sender, RoutedEventArgs e) => SwitchToPage(EnsureLogPage(), TabLog);
+
+    private void ShowFromTray()
     {
         Show();
         WindowState = WindowState.Normal;
         Activate();
-        Topmost = true;
-        Topmost = false;
     }
 
-    /// <summary>
-    /// 真正退出程序
-    /// </summary>
     private void QuitApp()
     {
         _trayIcon?.Dispose();
         _trayIcon = null;
         _authService.Stop();
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            desktop.Shutdown();
-        }
-        else
-        {
-            Environment.Exit(0);
-        }
-    }
 
-    private void LoadConfig() => _config = _configService.Load();
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.Shutdown();
+        else
+            Environment.Exit(0);
+    }
 
     private void ApplyConfigToUI()
     {
-        ConfigUsernameField.Text = _config.Username;
         UsernameField.Text = _config.Username;
-        PasswordField.Text = _config.Password;
-        ServerField.Text = _config.Server;
+        UpdateNetworkStatusDisplay();
 
-        if (!string.IsNullOrEmpty(_config.HostIp) && _config.HostIp != "0.0.0.0")
-            IpStatusText.Text = $"IP: {_config.HostIp}";
-        if (!string.IsNullOrEmpty(_config.Mac) && _config.Mac != "0x888888888888")
-            MacStatusText.Text = $"MAC: {_config.Mac}";
-
-        AutoStartCheck.IsChecked = _config.StartWithWindows;
-        AutoLoginCheck.IsChecked = _config.AutoLogin;
-
-        AutoStartCheck.IsCheckedChanged += (s, e) => {
-            try { _autoStartService.SetEnabled(AutoStartCheck.IsChecked ?? false); } catch { }
-        };
+        if (_configPage != null)
+            ApplyConfigToConfigPage();
     }
 
-    private void AutoDetectNetworkInfo()
+    private void ApplyConfigToConfigPage()
     {
-        if (_config.HostIp == "0.0.0.0" || string.IsNullOrEmpty(_config.HostIp))
-        {
-            var ip = NetworkInfoService.GetLocalIpAddress();
-            if (ip != "0.0.0.0")
-                IpStatusText.Text = $"IP: {ip}";
-        }
-        if (_config.Mac == "0x888888888888")
-        {
-            var mac = NetworkInfoService.GetMacAddress();
-            if (mac != "0x888888888888")
-                MacStatusText.Text = $"MAC: {mac}";
-        }
+        var page = _configPage!;
+        page.ConfigUsernameField.Text = _config.Username;
+        page.PasswordField.Text = _config.Password;
+        page.ServerField.Text = _config.Server;
+        page.AutoStartCheck.IsChecked = _config.StartWithWindows;
+        page.AutoLoginCheck.IsChecked = _config.AutoLogin;
+    }
+
+    private void UpdateNetworkStatusDisplay()
+    {
+        IpStatusText.Text = $"IP: {PrivacyHelper.MaskIp(_config.HostIp)}";
+        MacStatusText.Text = $"MAC: {PrivacyHelper.MaskMac(_config.Mac)}";
+    }
+
+    private void ApplyNetworkInfo(string ip, string mac)
+    {
+        if ((_config.HostIp == "0.0.0.0" || string.IsNullOrEmpty(_config.HostIp)) && ip != "0.0.0.0")
+            _config.HostIp = ip;
+
+        if (_config.Mac == "0x888888888888" && mac != "0x888888888888")
+            _config.Mac = mac;
+
+        UpdateNetworkStatusDisplay();
     }
 
     private ConfigModel ReadConfigFromUI()
     {
+        var page = EnsureConfigPage();
+        var hostIp = !string.IsNullOrEmpty(_config.HostIp) && _config.HostIp != "0.0.0.0"
+            ? _config.HostIp : "0.0.0.0";
+        var mac = !string.IsNullOrEmpty(_config.Mac) && _config.Mac != "0x888888888888"
+            ? _config.Mac : "0x888888888888";
+
         return new ConfigModel
         {
-            Server = string.IsNullOrEmpty(ServerField.Text) ? "10.100.61.3" : ServerField.Text,
-            Username = ConfigUsernameField.Text ?? "",
-            Password = PasswordField.Text ?? "",
-            HostIp = NetworkInfoService.GetLocalIpAddress(),
-            Mac = NetworkInfoService.GetMacAddress(),
+            Server = string.IsNullOrEmpty(page.ServerField.Text) ? "10.100.61.3" : page.ServerField.Text,
+            Username = page.ConfigUsernameField.Text ?? "",
+            Password = page.PasswordField.Text ?? "",
+            HostIp = hostIp,
+            Mac = mac,
             HostName = Environment.MachineName,
             HostOs = "Windows 10",
             PrimaryDns = "10.10.10.10",
             DhcpServer = "0.0.0.0",
-            AutoLogin = AutoLoginCheck.IsChecked ?? false,
-            StartWithWindows = AutoStartCheck.IsChecked ?? false,
+            AutoLogin = page.AutoLoginCheck.IsChecked ?? false,
+            StartWithWindows = page.AutoStartCheck.IsChecked ?? false,
             MinimizeToTray = true
         };
     }
@@ -239,44 +288,66 @@ public partial class MainWindow : Window
         _authService.OnLog += AppendLog;
         _authService.OnConnectionChanged += connected =>
         {
-            Dispatcher.UIThread.InvokeAsync(() => UpdateConnectionStatus(connected));
+            Dispatcher.UIThread.Post(() => UpdateConnectionStatus(connected), DispatcherPriority.Background);
         };
     }
 
     private void UpdateConnectionStatus(bool connected)
     {
         StatusIndicator.Text = connected ? "● 已连接" : "● 未连接";
-        StatusIndicator.Foreground = new SolidColorBrush(connected ? Color.Parse("#34C759") : Color.Parse("#FF453A"));
-
+        StatusIndicator.Foreground = connected ? StatusConnected : StatusDisconnected;
         LoginBtn.IsVisible = !connected;
         LogoutBtn.IsVisible = connected;
 
-        // 更新托盘提示
         if (_trayIcon != null)
             _trayIcon.ToolTipText = connected ? "校园网登录 - 已连接" : "校园网登录 - 未连接";
     }
 
-    private async void LoginBtn_Click(object? sender, RoutedEventArgs e)
-    {
-        await DoLogin();
-    }
+    private async void LoginBtn_Click(object? sender, RoutedEventArgs e) => await DoLogin();
 
-    private void LogoutBtn_Click(object? sender, RoutedEventArgs e)
-    {
-        Disconnect();
-    }
+    private void LogoutBtn_Click(object? sender, RoutedEventArgs e) => Disconnect();
 
-        private async Task DoLogin()
+    private async Task SaveConfigAsync()
     {
-        if (_isLoggingIn) return;
-        SaveBtn_Click(null, null);
+        var page = EnsureConfigPage();
+        if (!string.IsNullOrEmpty(UsernameField.Text))
+            page.ConfigUsernameField.Text = UsernameField.Text;
+        if (!string.IsNullOrEmpty(page.ConfigUsernameField.Text))
+            UsernameField.Text = page.ConfigUsernameField.Text;
 
         var config = ReadConfigFromUI();
-        // 同步快速登录账号到配置
+        await Task.Run(() => _configService.Save(config)).ConfigureAwait(false);
+        _config = config;
+    }
+
+    private async Task DoLogin()
+    {
+        if (_isLoggingIn) return;
+
+        try
+        {
+            await SaveConfigAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"保存配置失败: {ex.Message}");
+        }
+
+        var config = ReadConfigFromUI();
         if (!string.IsNullOrEmpty(UsernameField.Text))
         {
             config.Username = UsernameField.Text;
-            ConfigUsernameField.Text = UsernameField.Text;
+            EnsureConfigPage().ConfigUsernameField.Text = UsernameField.Text;
+        }
+
+        if (config.HostIp == "0.0.0.0" || config.Mac == "0x888888888888")
+        {
+            var network = await Task.Run(NetworkInfoService.GetNetworkInfo).ConfigureAwait(true);
+            if (config.HostIp == "0.0.0.0" && network.Ip != "0.0.0.0") config.HostIp = network.Ip;
+            if (config.Mac == "0x888888888888" && network.Mac != "0x888888888888") config.Mac = network.Mac;
+            _config.HostIp = config.HostIp;
+            _config.Mac = config.Mac;
+            ApplyNetworkInfo(network.Ip, network.Mac);
         }
 
         _authService.UpdateConfig(config.Server, config.Username, config.Password,
@@ -286,30 +357,30 @@ public partial class MainWindow : Window
         _isLoggingIn = true;
         LoginBtn.IsEnabled = false;
         UpdateConnectionStatus(false);
-
         AppendLog("正在连接认证服务器...");
+
         try
         {
-            await _authService.StartLoginAsync();
+            await _authService.StartLoginAsync().ConfigureAwait(true);
 
             if (_authService.IsLoggedIn)
             {
-                AppendLog("✅ 登录成功！已连接到校园网");
+                AppendLog("登录成功，已连接到校园网");
                 StatusIndicator.Text = "● 已连接";
-                StatusIndicator.Foreground = new SolidColorBrush(Color.Parse("#34C759"));
+                StatusIndicator.Foreground = StatusConnected;
             }
             else
             {
-                AppendLog("❌ 登录失败：认证服务器返回失败，请检查账号密码");
+                AppendLog("登录失败：请检查账号密码");
                 StatusIndicator.Text = "● 登录失败";
-                StatusIndicator.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+                StatusIndicator.Foreground = StatusFailed;
             }
         }
         catch (Exception ex)
         {
-            AppendLog($"❌ 登录失败：{ex.Message}");
+            AppendLog($"登录失败：{ex.Message}");
             StatusIndicator.Text = "● 登录失败";
-            StatusIndicator.Foreground = new SolidColorBrush(Color.Parse("#EF4444"));
+            StatusIndicator.Foreground = StatusFailed;
         }
 
         _isLoggingIn = false;
@@ -323,23 +394,16 @@ public partial class MainWindow : Window
         _isLoggingIn = false;
         LoginBtn.IsEnabled = true;
         UpdateConnectionStatus(false);
-        AppendLog("🔌 已断开连接");
+        AppendLog("已断开连接");
         StatusIndicator.Text = "● 已离线";
-        StatusIndicator.Foreground = new SolidColorBrush(Color.Parse("#64748B"));
+        StatusIndicator.Foreground = StatusOffline;
     }
 
-    private void SaveBtn_Click(object? sender, RoutedEventArgs? e)
+    private async void SaveBtn_Click(object? sender, RoutedEventArgs? e)
     {
         try
         {
-            // 双向同步快速登录账号与配置账号
-            if (!string.IsNullOrEmpty(UsernameField.Text))
-                ConfigUsernameField.Text = UsernameField.Text;
-            if (!string.IsNullOrEmpty(ConfigUsernameField.Text))
-                UsernameField.Text = ConfigUsernameField.Text;
-
-            _config = ReadConfigFromUI();
-            _configService.Save(_config);
+            await SaveConfigAsync().ConfigureAwait(true);
             AppendLog("配置已保存");
         }
         catch (Exception ex)
@@ -350,35 +414,36 @@ public partial class MainWindow : Window
 
     private void AppendLog(string message)
     {
-        Dispatcher.UIThread.InvokeAsync(() => {
-            _logLines.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
-            if (_logLines.Count > 200) _logLines.RemoveRange(0, _logLines.Count - 200);
-            LogBox.Text = string.Join(Environment.NewLine, _logLines);
-            LogBox.CaretIndex = LogBox.Text.Length;
-        });
+        var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_logLineCount >= MaxLogLines)
+            {
+                var text = _logBuilder.ToString();
+                var idx = text.IndexOf('\n');
+                if (idx >= 0)
+                {
+                    _logBuilder.Remove(0, idx + 1);
+                    _logLineCount--;
+                }
+            }
+
+            _logBuilder.AppendLine(line);
+            _logLineCount++;
+
+            if (_logPage != null)
+                _logPage.LogText.Text = _logBuilder.ToString();
+        }, DispatcherPriority.Background);
     }
 
-    // ========== 自定义标题栏按钮 ==========
-    private void MinBtn_Click(object? sender, RoutedEventArgs e)
-    {
-        // 最小化到托盘
-        Hide();
-    }
+    private void MinBtn_Click(object? sender, RoutedEventArgs e) => Hide();
 
-    private void CloseBtn_Click(object? sender, RoutedEventArgs e)
-    {
-        // 关闭按钮：隐藏到托盘（不退出程序）
-        Hide();
-    }
+    private void CloseBtn_Click(object? sender, RoutedEventArgs e) => Hide();
 
-    /// <summary>
-    /// 拦截窗口关闭事件，改为隐藏到托盘
-    /// </summary>
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (_trayIcon != null)
         {
-            // 不是真正退出，隐藏到托盘
             e.Cancel = true;
             Hide();
             return;

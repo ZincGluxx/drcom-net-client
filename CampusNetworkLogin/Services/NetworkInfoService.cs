@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Net;
 using System.Net.NetworkInformation;
 
 namespace CampusNetworkLogin.Services;
@@ -11,74 +10,60 @@ namespace CampusNetworkLogin.Services;
 public class NetworkInfoService
 {
     /// <summary>
-    /// 获取首选IPv4地址
+    /// 单次扫描网卡，同时返回首选 IPv4 与 MAC
     /// </summary>
-    public static string GetLocalIpAddress()
+    public static (string Ip, string Mac) GetNetworkInfo()
     {
+        const string defaultIp = "0.0.0.0";
+        const string defaultMac = "0x888888888888";
+
         try
         {
             var interfaces = NetworkInterface.GetAllNetworkInterfaces()
                 .Where(n => n.OperationalStatus == OperationalStatus.Up &&
                             n.NetworkInterfaceType != NetworkInterfaceType.Loopback);
 
+            string? ip = null;
+            string? mac = null;
+
             foreach (var iface in interfaces)
             {
-                var ipInfo = iface.GetIPProperties().UnicastAddresses
-                    .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-                
-                if (ipInfo != null)
+                if (ip == null)
                 {
-                    return ipInfo.Address.ToString();
+                    var ipInfo = iface.GetIPProperties().UnicastAddresses
+                        .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                    if (ipInfo != null)
+                        ip = ipInfo.Address.ToString();
                 }
+
+                if (mac == null)
+                {
+                    var addr = iface.GetPhysicalAddress().GetAddressBytes();
+                    if (addr.Length == 6 && addr.Any(b => b != 0))
+                    {
+                        var hex = BitConverter.ToString(addr).Replace("-", "");
+                        mac = "0x" + hex.ToLower();
+                    }
+                }
+
+                if (ip != null && mac != null)
+                    break;
             }
-            return "0.0.0.0";
+
+            return (ip ?? defaultIp, mac ?? defaultMac);
         }
         catch
         {
-            return "0.0.0.0";
+            return (defaultIp, defaultMac);
         }
     }
 
-    /// <summary>
-    /// 获取物理MAC地址（格式: 0x开头十六进制）
-    /// </summary>
-    public static string GetMacAddress()
-    {
-        try
-        {
-            var nics = NetworkInterface.GetAllNetworkInterfaces()
-                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
-                            n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                .ToList();
+    public static string GetLocalIpAddress() => GetNetworkInfo().Ip;
 
-            foreach (var nic in nics)
-            {
-                var addr = nic.GetPhysicalAddress().GetAddressBytes();
-                if (addr.Length == 6 && addr.Any(b => b != 0))
-                {
-                    var hex = BitConverter.ToString(addr).Replace("-", "");
-                    return "0x" + hex.ToLower();
-                }
-            }
-        }
-        catch { }
+    public static string GetMacAddress() => GetNetworkInfo().Mac;
 
-        return "0x888888888888";
-    }
+    public static string GetHostName() => Environment.MachineName;
 
-    /// <summary>
-    /// 获取计算机名
-    /// </summary>
-    public static string GetHostName()
-    {
-        return Environment.MachineName;
-    }
-
-    /// <summary>
-    /// 获取操作系统版本
-    /// </summary>
-    public static string GetOsVersion()
-    {
-        return $"Windows {Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor}";
-    }
+    public static string GetOsVersion() =>
+        $"Windows {Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor}";
 }
