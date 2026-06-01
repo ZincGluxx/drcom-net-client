@@ -1,5 +1,5 @@
-; 校园网登录 - Inno Setup 安装脚本
-; NativeAOT 单文件发布，无需 .NET 运行时
+; 校园网登录 - Inno Setup 安装脚本 (AOT 版)
+
 #define MyAppName "校园网登录"
 #define MyAppVersion "1.0.3"
 #define MyAppPublisher "Drcom NET"
@@ -15,8 +15,8 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=.
-OutputBaseFilename=校园网登录_v{#MyAppVersion}_Setup
-Compression=lzma2/ultra64
+OutputBaseFilename=校园网登录_v{#MyAppVersion}_AOT_Setup
+Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
@@ -30,9 +30,10 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："
 
 [Files]
-Source: "publish_aot\DrcomNET.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "publish_aot\*.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "publish_aot\Resources\icon.ico"; DestDir: "{app}\Resources"; Flags: ignoreversion
+Source: "CampusNetworkLogin\bin\Release\net8.0-windows\win-x64\publish\DrcomNET.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "CampusNetworkLogin\bin\Release\net8.0-windows\win-x64\publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "CampusNetworkLogin\bin\Release\net8.0-windows\win-x64\publish\Resources\icon.ico"; DestDir: "{app}\Resources"; Flags: ignoreversion
+
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
@@ -46,4 +47,3 @@ function InitializeSetup: Boolean;
 begin
   Result := True;
 end;
-

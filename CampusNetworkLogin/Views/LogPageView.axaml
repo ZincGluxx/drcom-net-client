@@ -1,9 +1,0 @@
-<UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="CampusNetworkLogin.Views.LogPageView">
-    <Border Background="#FAFBFC" CornerRadius="8" Padding="8">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <TextBlock x:Name="LogText" TextWrapping="Wrap" FontSize="11" Foreground="#334155"/>
-        </ScrollViewer>
-    </Border>
-</UserControl>

@@ -2,31 +2,35 @@
 
     <PropertyGroup>
       <OutputType>WinExe</OutputType>
-      <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
       <Nullable>enable</Nullable>
-      <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
-      <AssemblyName>Drcom NET</AssemblyName>
+    <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
+      <AssemblyName>DrcomNET</AssemblyName>
       <RootNamespace>CampusNetworkLogin</RootNamespace>
-      <Version>1.0.1.0</Version>
+    <Version>1.0.3.0</Version>
       <Description>Drcom .NET for JLU - 校园网登录客户端</Description>
-      <SelfContained>false</SelfContained>
-      <RollForward>LatestMajor</RollForward>
-      <DebugType>none</DebugType>
+
+    <!-- NativeAOT -->
+    <SelfContained>true</SelfContained>
+    <PublishAot>true</PublishAot>
       <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <DebugType>none</DebugType>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <AvaloniaNameAttributeIsGenerated>true</AvaloniaNameAttributeIsGenerated>
     </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.0.10" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.0.10" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="Avalonia" Version="12.0.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.3" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Resources\icon.ico" />
   </ItemGroup>
 
-  <!-- 将图标复制到输出目录，供托盘图标运行时加载 -->
     <ItemGroup>
     <None Include="Resources\icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

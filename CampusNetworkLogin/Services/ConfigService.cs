@@ -35,7 +35,7 @@ public class ConfigService
                 return new ConfigModel();
 
             var json = File.ReadAllText(_configPath, Encoding.UTF8);
-            var config = JsonSerializer.Deserialize<ConfigModel>(json) ?? new ConfigModel();
+            var config = JsonSerializer.Deserialize(json, CampusNetworkLogin.Helpers.AppJsonContext.Default.ConfigModel) ?? new ConfigModel();
 
             // 解密密码
             if (!string.IsNullOrEmpty(config.Password))
@@ -93,7 +93,8 @@ public class ConfigService
                 configToSave.Password = Convert.ToBase64String(encrypted);
             }
 
-            var json = JsonSerializer.Serialize(configToSave, new JsonSerializerOptions { WriteIndented = true });
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var json = JsonSerializer.Serialize(configToSave, typeof(ConfigModel), new CampusNetworkLogin.Helpers.AppJsonContext(options));
             File.WriteAllText(_configPath, json, Encoding.UTF8);
         }
         catch (Exception ex)

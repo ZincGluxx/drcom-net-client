@@ -26,9 +26,6 @@ public partial class MainWindow : Window
     private bool _autoStartHandlerAttached;
     private TrayIcon? _trayIcon;
 
-    private ConfigPageView? _configPage;
-    private LogPageView? _logPage;
-
     private readonly StringBuilder _logBuilder = new();
     private int _logLineCount;
     private const int MaxLogLines = 200;
@@ -46,6 +43,14 @@ public partial class MainWindow : Window
     {
         _configLoadTask = configLoadTask;
         InitializeComponent();
+        // NativeAOT 下从文件加载窗口图标
+        try
+        {
+            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", "icon.ico");
+            if (System.IO.File.Exists(icoPath))
+                Icon = new WindowIcon(icoPath);
+        }
+        catch { /* ignore */ }
         SetupAuthEvents();
         Opened += (_, _) => Dispatcher.UIThread.Post(() => Opacity = 1, DispatcherPriority.Render);
     }
@@ -65,6 +70,20 @@ public partial class MainWindow : Window
         {
             _config = config;
             ApplyConfigToUI();
+
+            if (!_autoStartHandlerAttached)
+            {
+                _autoStartHandlerAttached = true;
+                this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsCheckedChanged += (_, _) =>
+                {
+                    try { _autoStartService.SetEnabled(this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsChecked ?? false); }
+                    catch { /* ignore */ }
+                };
+            }
+
+            if (_logBuilder.Length > 0)
+                this.FindControl<TextBlock>("LogText")!.Text = _logBuilder.ToString();
+
         }, DispatcherPriority.Background);
 
         _ = RefreshNetworkInfoAsync();
@@ -80,38 +99,6 @@ public partial class MainWindow : Window
                 await DoLogin();
             }, DispatcherPriority.Background);
         }
-    }
-
-    private ConfigPageView EnsureConfigPage()
-    {
-        if (_configPage != null) return _configPage;
-
-        _configPage = new ConfigPageView();
-        _configPage.SaveClicked += SaveBtn_Click;
-        ApplyConfigToConfigPage();
-
-        if (!_autoStartHandlerAttached)
-        {
-            _autoStartHandlerAttached = true;
-            _configPage.AutoStartCheck.IsCheckedChanged += (_, _) =>
-            {
-                try { _autoStartService.SetEnabled(_configPage.AutoStartCheck.IsChecked ?? false); }
-                catch { /* ignore */ }
-            };
-        }
-
-        return _configPage;
-    }
-
-    private LogPageView EnsureLogPage()
-    {
-        if (_logPage != null) return _logPage;
-
-        _logPage = new LogPageView();
-        if (_logBuilder.Length > 0)
-            _logPage.LogText.Text = _logBuilder.ToString();
-
-        return _logPage;
     }
 
     private async Task RefreshNetworkInfoAsync()
@@ -179,30 +166,6 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Background);
     }
 
-    private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-            BeginMoveDrag(e);
-    }
-
-    private void SwitchToPage(Control page, Button activeBtn)
-    {
-        PageHost.Content = page;
-        SetTabActive(TabLogin, activeBtn == TabLogin);
-        SetTabActive(TabConfig, activeBtn == TabConfig);
-        SetTabActive(TabLog, activeBtn == TabLog);
-    }
-
-    private static void SetTabActive(Button tab, bool active)
-    {
-        if (active) tab.Classes.Add("tab-active");
-        else tab.Classes.Remove("tab-active");
-    }
-
-    private void TabLogin_Click(object? sender, RoutedEventArgs e) => SwitchToPage(PageLogin, TabLogin);
-    private void TabConfig_Click(object? sender, RoutedEventArgs e) => SwitchToPage(EnsureConfigPage(), TabConfig);
-    private void TabLog_Click(object? sender, RoutedEventArgs e) => SwitchToPage(EnsureLogPage(), TabLog);
-
     private void ShowFromTray()
     {
         Show();
@@ -225,20 +188,11 @@ public partial class MainWindow : Window
     private void ApplyConfigToUI()
     {
         UsernameField.Text = _config.Username;
+        this.FindControl<TextBox>("PasswordField")!.Text = _config.Password;
+        this.FindControl<TextBox>("ServerField")!.Text = _config.Server;
+        this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsChecked = _config.StartWithWindows;
+        this.FindControl<ToggleSwitch>("AutoLoginCheck")!.IsChecked = _config.AutoLogin;
         UpdateNetworkStatusDisplay();
-
-        if (_configPage != null)
-            ApplyConfigToConfigPage();
-    }
-
-    private void ApplyConfigToConfigPage()
-    {
-        var page = _configPage!;
-        page.ConfigUsernameField.Text = _config.Username;
-        page.PasswordField.Text = _config.Password;
-        page.ServerField.Text = _config.Server;
-        page.AutoStartCheck.IsChecked = _config.StartWithWindows;
-        page.AutoLoginCheck.IsChecked = _config.AutoLogin;
     }
 
     private void UpdateNetworkStatusDisplay()
@@ -260,7 +214,6 @@ public partial class MainWindow : Window
 
     private ConfigModel ReadConfigFromUI()
     {
-        var page = EnsureConfigPage();
         var hostIp = !string.IsNullOrEmpty(_config.HostIp) && _config.HostIp != "0.0.0.0"
             ? _config.HostIp : "0.0.0.0";
         var mac = !string.IsNullOrEmpty(_config.Mac) && _config.Mac != "0x888888888888"
@@ -268,17 +221,17 @@ public partial class MainWindow : Window
 
         return new ConfigModel
         {
-            Server = string.IsNullOrEmpty(page.ServerField.Text) ? "10.100.61.3" : page.ServerField.Text,
-            Username = page.ConfigUsernameField.Text ?? "",
-            Password = page.PasswordField.Text ?? "",
+            Server = string.IsNullOrEmpty(this.FindControl<TextBox>("ServerField")!.Text) ? "10.100.61.3" : this.FindControl<TextBox>("ServerField")!.Text!,
+            Username = UsernameField.Text ?? "",
+            Password = this.FindControl<TextBox>("PasswordField")!.Text ?? "",
             HostIp = hostIp,
             Mac = mac,
             HostName = Environment.MachineName,
             HostOs = "Windows 10",
             PrimaryDns = "10.10.10.10",
             DhcpServer = "0.0.0.0",
-            AutoLogin = page.AutoLoginCheck.IsChecked ?? false,
-            StartWithWindows = page.AutoStartCheck.IsChecked ?? false,
+            AutoLogin = this.FindControl<ToggleSwitch>("AutoLoginCheck")!.IsChecked ?? false,
+            StartWithWindows = this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsChecked ?? false,
             MinimizeToTray = true
         };
     }
@@ -309,12 +262,6 @@ public partial class MainWindow : Window
 
     private async Task SaveConfigAsync()
     {
-        var page = EnsureConfigPage();
-        if (!string.IsNullOrEmpty(UsernameField.Text))
-            page.ConfigUsernameField.Text = UsernameField.Text;
-        if (!string.IsNullOrEmpty(page.ConfigUsernameField.Text))
-            UsernameField.Text = page.ConfigUsernameField.Text;
-
         var config = ReadConfigFromUI();
         await Task.Run(() => _configService.Save(config)).ConfigureAwait(false);
         _config = config;
@@ -337,7 +284,6 @@ public partial class MainWindow : Window
         if (!string.IsNullOrEmpty(UsernameField.Text))
         {
             config.Username = UsernameField.Text;
-            EnsureConfigPage().ConfigUsernameField.Text = UsernameField.Text;
         }
 
         if (config.HostIp == "0.0.0.0" || config.Mac == "0x888888888888")
@@ -431,14 +377,11 @@ public partial class MainWindow : Window
             _logBuilder.AppendLine(line);
             _logLineCount++;
 
-            if (_logPage != null)
-                _logPage.LogText.Text = _logBuilder.ToString();
+            var logTextControl = this.FindControl<SelectableTextBlock>("LogText");
+            if (logTextControl != null)
+                logTextControl.Text = _logBuilder.ToString();
         }, DispatcherPriority.Background);
     }
-
-    private void MinBtn_Click(object? sender, RoutedEventArgs e) => Hide();
-
-    private void CloseBtn_Click(object? sender, RoutedEventArgs e) => Hide();
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
