@@ -1,1 +1,0 @@
-OutputBaseFilename=校园网登录_v{#MyAppVersion}_FrameworkDependent_Setup
