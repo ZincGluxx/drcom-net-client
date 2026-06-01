@@ -15,7 +15,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=.
-OutputBaseFilename=校园网登录_v{#MyAppVersion}_AOT_Setup
+OutputBaseFilename=校园网登录_v{#MyAppVersion}_FrameworkDependent_Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -30,9 +30,9 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："
 
 [Files]
-Source: "CampusNetworkLogin\bin\Release\net8.0-windows\win-x64\publish\DrcomNET.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "CampusNetworkLogin\bin\Release\net8.0-windows\win-x64\publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "CampusNetworkLogin\bin\Release\net8.0-windows\win-x64\publish\Resources\icon.ico"; DestDir: "{app}\Resources"; Flags: ignoreversion
+Source: "publish\DrcomNET.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "publish\Resources\icon.ico"; DestDir: "{app}\Resources"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
