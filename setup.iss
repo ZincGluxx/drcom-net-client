@@ -1,7 +1,7 @@
 ; 校园网登录 - Inno Setup 安装脚本
 ; NativeAOT 单文件发布，无需 .NET 运行时
 #define MyAppName "校园网登录"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "Drcom NET"
 #define MyAppURL ""
 #define MyAppExeName "DrcomNET.exe"

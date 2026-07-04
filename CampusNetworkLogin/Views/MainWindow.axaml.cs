@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -9,6 +10,8 @@ using CampusNetworkLogin.Helpers;
 using CampusNetworkLogin.Models;
 using CampusNetworkLogin.Services;
 using System;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -16,24 +19,28 @@ namespace CampusNetworkLogin.Views;
 
 public partial class MainWindow : Window
 {
+    private const string AuthServer = "10.100.61.3";
+    private const string DefaultDns = "10.10.10.10";
+
     private readonly Task<ConfigModel> _configLoadTask;
     private readonly ConfigService _configService = new();
     private readonly AutoStartService _autoStartService = new();
     private readonly DrcomAuthService _authService = new();
     private ConfigModel _config = new();
+    private NetworkSnapshot _networkSnapshot = new("0.0.0.0", "0x888888888888", "--", "255.255.255.0", "--", "--", false);
     private bool _isLoggingIn;
     private bool _initialized;
     private bool _autoStartHandlerAttached;
+    private bool _passwordVisible;
     private TrayIcon? _trayIcon;
-
     private readonly StringBuilder _logBuilder = new();
-    private int _logLineCount;
-    private const int MaxLogLines = 200;
 
     private static readonly IBrush StatusConnected = new SolidColorBrush(Color.Parse("#34C759"));
     private static readonly IBrush StatusDisconnected = new SolidColorBrush(Color.Parse("#FF453A"));
     private static readonly IBrush StatusFailed = new SolidColorBrush(Color.Parse("#EF4444"));
     private static readonly IBrush StatusOffline = new SolidColorBrush(Color.Parse("#64748B"));
+    private static readonly IBrush StatusReady = new SolidColorBrush(Color.Parse("#16A34A"));
+    private static readonly IBrush StatusWarning = new SolidColorBrush(Color.Parse("#D97706"));
 
     public MainWindow() : this(Task.FromResult(new ConfigModel()))
     {
@@ -43,7 +50,7 @@ public partial class MainWindow : Window
     {
         _configLoadTask = configLoadTask;
         InitializeComponent();
-        // NativeAOT 下从文件加载窗口图标
+
         try
         {
             var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", "icon.ico");
@@ -51,6 +58,7 @@ public partial class MainWindow : Window
                 Icon = new WindowIcon(icoPath);
         }
         catch { /* ignore */ }
+
         SetupAuthEvents();
         Opened += (_, _) => Dispatcher.UIThread.Post(() => Opacity = 1, DispatcherPriority.Render);
     }
@@ -74,24 +82,20 @@ public partial class MainWindow : Window
             if (!_autoStartHandlerAttached)
             {
                 _autoStartHandlerAttached = true;
-                this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsCheckedChanged += (_, _) =>
+                AutoStartCheck.IsCheckedChanged += (_, _) =>
                 {
-                    try { _autoStartService.SetEnabled(this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsChecked ?? false); }
+                    try { _autoStartService.SetEnabled(AutoStartCheck.IsChecked ?? false); }
                     catch { /* ignore */ }
                 };
             }
-
-            if (_logBuilder.Length > 0)
-                this.FindControl<TextBlock>("LogText")!.Text = _logBuilder.ToString();
-
         }, DispatcherPriority.Background);
 
         _ = RefreshNetworkInfoAsync();
         Dispatcher.UIThread.Post(() => _ = CreateTrayIconAsync(), DispatcherPriority.Background);
 
         if (_config.AutoLogin &&
-            !string.IsNullOrEmpty(_config.Username) &&
-            !string.IsNullOrEmpty(_config.Password))
+            !string.IsNullOrWhiteSpace(_config.Username) &&
+            !string.IsNullOrWhiteSpace(_config.Password))
         {
             Dispatcher.UIThread.Post(async () =>
             {
@@ -103,35 +107,23 @@ public partial class MainWindow : Window
 
     private async Task RefreshNetworkInfoAsync()
     {
-        await Task.Delay(200).ConfigureAwait(false);
-        var network = await Task.Run(NetworkInfoService.GetNetworkInfo).ConfigureAwait(false);
-        await Dispatcher.UIThread.InvokeAsync(() =>
-            ApplyNetworkInfo(network.Ip, network.Mac), DispatcherPriority.Background);
+        await Task.Delay(150).ConfigureAwait(false);
+        var network = await Task.Run(NetworkInfoService.GetNetworkSnapshot).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyNetworkInfo(network), DispatcherPriority.Background);
     }
 
     private async Task CreateTrayIconAsync()
     {
-        await Task.Delay(1500).ConfigureAwait(false);
+        await Task.Delay(1000).ConfigureAwait(false);
 
         WindowIcon? icon = null;
         try
         {
-            var icoPath = await Task.Run(() =>
-            {
-                var baseDir = AppContext.BaseDirectory;
-                var path = System.IO.Path.Combine(baseDir, "Resources", "icon.ico");
-                if (System.IO.File.Exists(path)) return path;
-                path = System.IO.Path.Combine(baseDir, "icon.ico");
-                return System.IO.File.Exists(path) ? path : null;
-            }).ConfigureAwait(false);
-
-            if (icoPath != null)
+            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", "icon.ico");
+            if (System.IO.File.Exists(icoPath))
                 icon = new WindowIcon(icoPath);
         }
-        catch
-        {
-            // ignore
-        }
+        catch { /* ignore */ }
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
@@ -149,6 +141,14 @@ public partial class MainWindow : Window
             var logoutItem = new NativeMenuItem("断开连接");
             logoutItem.Click += (_, _) => Disconnect();
             menu.Add(logoutItem);
+
+            var refreshItem = new NativeMenuItem("刷新网络信息");
+            refreshItem.Click += async (_, _) => await RefreshNetworkInfoAsync();
+            menu.Add(refreshItem);
+
+            var copyDiagnosticsItem = new NativeMenuItem("复制网络诊断");
+            copyDiagnosticsItem.Click += async (_, _) => await CopyTextToClipboardAsync(BuildNetworkDiagnostics());
+            menu.Add(copyDiagnosticsItem);
             menu.Add(new NativeMenuItemSeparator());
 
             var quitItem = new NativeMenuItem("退出程序");
@@ -164,6 +164,12 @@ public partial class MainWindow : Window
             };
             _trayIcon.Clicked += (_, _) => ShowFromTray();
         }, DispatcherPriority.Background);
+    }
+
+    private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            BeginMoveDrag(e);
     }
 
     private void ShowFromTray()
@@ -188,51 +194,60 @@ public partial class MainWindow : Window
     private void ApplyConfigToUI()
     {
         UsernameField.Text = _config.Username;
-        this.FindControl<TextBox>("PasswordField")!.Text = _config.Password;
-        this.FindControl<TextBox>("ServerField")!.Text = _config.Server;
-        this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsChecked = _config.StartWithWindows;
-        this.FindControl<ToggleSwitch>("AutoLoginCheck")!.IsChecked = _config.AutoLogin;
+        PasswordField.Text = _config.Password;
+        AutoStartCheck.IsChecked = _config.StartWithWindows;
+        AutoLoginCheck.IsChecked = _config.AutoLogin;
+        MinimizeToTrayCheck.IsChecked = _config.MinimizeToTray;
         UpdateNetworkStatusDisplay();
+        UpdateConfigStatus(ReadConfigFromUI());
     }
 
     private void UpdateNetworkStatusDisplay()
     {
         IpStatusText.Text = $"IP: {PrivacyHelper.MaskIp(_config.HostIp)}";
         MacStatusText.Text = $"MAC: {PrivacyHelper.MaskMac(_config.Mac)}";
+        AdapterStatusText.Text = $"网卡: {_networkSnapshot.AdapterName}";
+        GatewayStatusText.Text = $"网关: {_networkSnapshot.Gateway}";
+        DnsStatusText.Text = $"DNS: {_networkSnapshot.Dns}";
     }
 
-    private void ApplyNetworkInfo(string ip, string mac)
+    private void ApplyNetworkInfo(NetworkSnapshot snapshot)
     {
-        if ((_config.HostIp == "0.0.0.0" || string.IsNullOrEmpty(_config.HostIp)) && ip != "0.0.0.0")
-            _config.HostIp = ip;
+        _networkSnapshot = snapshot;
 
-        if (_config.Mac == "0x888888888888" && mac != "0x888888888888")
-            _config.Mac = mac;
+        if (snapshot.Ip != "0.0.0.0")
+            _config.HostIp = snapshot.Ip;
+
+        if (snapshot.Mac != "0x888888888888")
+            _config.Mac = snapshot.Mac;
+
+        if (snapshot.Gateway != "--")
+            _config.Gateway = snapshot.Gateway;
+
+        if (snapshot.Dns != "--")
+            _config.PrimaryDns = snapshot.Dns;
 
         UpdateNetworkStatusDisplay();
+        UpdateConfigStatus(ReadConfigFromUI());
     }
 
     private ConfigModel ReadConfigFromUI()
     {
-        var hostIp = !string.IsNullOrEmpty(_config.HostIp) && _config.HostIp != "0.0.0.0"
-            ? _config.HostIp : "0.0.0.0";
-        var mac = !string.IsNullOrEmpty(_config.Mac) && _config.Mac != "0x888888888888"
-            ? _config.Mac : "0x888888888888";
-
         return new ConfigModel
         {
-            Server = string.IsNullOrEmpty(this.FindControl<TextBox>("ServerField")!.Text) ? "10.100.61.3" : this.FindControl<TextBox>("ServerField")!.Text!,
-            Username = UsernameField.Text ?? "",
-            Password = this.FindControl<TextBox>("PasswordField")!.Text ?? "",
-            HostIp = hostIp,
-            Mac = mac,
+            Server = AuthServer,
+            Username = (UsernameField.Text ?? "").Trim(),
+            Password = PasswordField.Text ?? "",
+            HostIp = string.IsNullOrWhiteSpace(_config.HostIp) ? "0.0.0.0" : _config.HostIp,
+            Mac = string.IsNullOrWhiteSpace(_config.Mac) ? "0x888888888888" : _config.Mac,
+            Gateway = string.IsNullOrWhiteSpace(_config.Gateway) ? "0.0.0.0" : _config.Gateway,
             HostName = Environment.MachineName,
-            HostOs = "Windows 10",
-            PrimaryDns = "10.10.10.10",
+            HostOs = NetworkInfoService.GetOsVersion(),
+            PrimaryDns = _networkSnapshot.Dns == "--" ? DefaultDns : _networkSnapshot.Dns,
             DhcpServer = "0.0.0.0",
-            AutoLogin = this.FindControl<ToggleSwitch>("AutoLoginCheck")!.IsChecked ?? false,
-            StartWithWindows = this.FindControl<ToggleSwitch>("AutoStartCheck")!.IsChecked ?? false,
-            MinimizeToTray = true
+            AutoLogin = AutoLoginCheck.IsChecked ?? false,
+            StartWithWindows = AutoStartCheck.IsChecked ?? false,
+            MinimizeToTray = MinimizeToTrayCheck.IsChecked ?? true
         };
     }
 
@@ -249,6 +264,8 @@ public partial class MainWindow : Window
     {
         StatusIndicator.Text = connected ? "● 已连接" : "● 未连接";
         StatusIndicator.Foreground = connected ? StatusConnected : StatusDisconnected;
+        KeepAliveStatusText.Text = connected ? "保活运行中" : "保活未启动";
+        KeepAliveStatusText.Foreground = connected ? StatusReady : StatusOffline;
         LoginBtn.IsVisible = !connected;
         LogoutBtn.IsVisible = connected;
 
@@ -260,11 +277,92 @@ public partial class MainWindow : Window
 
     private void LogoutBtn_Click(object? sender, RoutedEventArgs e) => Disconnect();
 
+    private async void RefreshNetworkBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        RefreshNetworkBtn.IsEnabled = false;
+        try
+        {
+            SetHint("正在刷新本机网络...");
+            var network = await Task.Run(NetworkInfoService.GetNetworkSnapshot).ConfigureAwait(true);
+            ApplyNetworkInfo(network);
+            SetHint(network.IsReady ? "网络信息已刷新" : "未找到可用 IPv4/MAC");
+        }
+        catch (Exception ex)
+        {
+            SetHint($"刷新失败: {ex.Message}");
+        }
+        finally
+        {
+            RefreshNetworkBtn.IsEnabled = true;
+        }
+    }
+
+    private async void EditNetworkBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new NetworkSettingsWindow(_networkSnapshot);
+        var applied = await dialog.ShowDialog<bool>(this);
+        if (applied)
+        {
+            SetHint("静态网络设置已提交，正在刷新...");
+            await RefreshNetworkInfoAsync();
+        }
+    }
+
+    private async void PingInternalBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        await RunPingAsync("jlu.edu.cn", PingInternalBtn, InternalStatusText);
+    }
+
+    private async void PingExternalBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        await RunPingAsync("www.baidu.com", PingExternalBtn, ExternalStatusText);
+    }
+
+    private async Task RunPingAsync(string host, Button button, TextBlock target)
+    {
+        button.IsEnabled = false;
+        target.Text = "检测中...";
+        target.Foreground = StatusOffline;
+
+        try
+        {
+            using var ping = new Ping();
+            var reply = await ping.SendPingAsync(host, 2500).ConfigureAwait(true);
+            if (reply.Status == IPStatus.Success)
+            {
+                target.Text = $"成功 {reply.RoundtripTime}ms";
+                target.Foreground = StatusReady;
+            }
+            else
+            {
+                target.Text = $"失败 {reply.Status}";
+                target.Foreground = StatusWarning;
+            }
+        }
+        catch (Exception ex)
+        {
+            target.Text = $"失败 {ex.Message}";
+            target.Foreground = StatusWarning;
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private void TogglePasswordBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        _passwordVisible = !_passwordVisible;
+        PasswordField.PasswordChar = _passwordVisible ? '\0' : '●';
+        TogglePasswordBtn.Content = _passwordVisible ? "隐藏" : "显示";
+    }
+
     private async Task SaveConfigAsync()
     {
         var config = ReadConfigFromUI();
         await Task.Run(() => _configService.Save(config)).ConfigureAwait(false);
         _config = config;
+        UpdateConfigStatus(config);
     }
 
     private async Task DoLogin()
@@ -277,23 +375,29 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"保存配置失败: {ex.Message}");
+            SetHint($"保存配置失败: {ex.Message}");
         }
 
         var config = ReadConfigFromUI();
-        if (!string.IsNullOrEmpty(UsernameField.Text))
-        {
-            config.Username = UsernameField.Text;
-        }
-
         if (config.HostIp == "0.0.0.0" || config.Mac == "0x888888888888")
         {
-            var network = await Task.Run(NetworkInfoService.GetNetworkInfo).ConfigureAwait(true);
-            if (config.HostIp == "0.0.0.0" && network.Ip != "0.0.0.0") config.HostIp = network.Ip;
-            if (config.Mac == "0x888888888888" && network.Mac != "0x888888888888") config.Mac = network.Mac;
+            SetHint("正在检测本机网络...");
+            var network = await Task.Run(NetworkInfoService.GetNetworkSnapshot).ConfigureAwait(true);
+            if (network.Ip != "0.0.0.0") config.HostIp = network.Ip;
+            if (network.Mac != "0x888888888888") config.Mac = network.Mac;
             _config.HostIp = config.HostIp;
             _config.Mac = config.Mac;
-            ApplyNetworkInfo(network.Ip, network.Mac);
+            ApplyNetworkInfo(network);
+        }
+
+        var validationError = ValidateLoginConfig(config);
+        if (validationError != null)
+        {
+            SetHint(validationError);
+            StatusIndicator.Text = "● 待完善";
+            StatusIndicator.Foreground = StatusWarning;
+            UpdateConfigStatus(config);
+            return;
         }
 
         _authService.UpdateConfig(config.Server, config.Username, config.Password,
@@ -302,35 +406,37 @@ public partial class MainWindow : Window
 
         _isLoggingIn = true;
         LoginBtn.IsEnabled = false;
+        SaveBtn.IsEnabled = false;
         UpdateConnectionStatus(false);
-        AppendLog("正在连接认证服务器...");
+        SetHint("正在连接认证服务器...");
 
         try
         {
-            await _authService.StartLoginAsync().ConfigureAwait(true);
+            var loginSucceeded = await _authService.StartLoginAsync().ConfigureAwait(true);
 
-            if (_authService.IsLoggedIn)
+            if (loginSucceeded && _authService.IsLoggedIn)
             {
-                AppendLog("登录成功，已连接到校园网");
+                SetHint("登录成功");
                 StatusIndicator.Text = "● 已连接";
                 StatusIndicator.Foreground = StatusConnected;
             }
             else
             {
-                AppendLog("登录失败：请检查账号密码");
+                SetHint("登录失败，请检查账号密码");
                 StatusIndicator.Text = "● 登录失败";
                 StatusIndicator.Foreground = StatusFailed;
             }
         }
         catch (Exception ex)
         {
-            AppendLog($"登录失败：{ex.Message}");
+            SetHint($"登录失败: {ex.Message}");
             StatusIndicator.Text = "● 登录失败";
             StatusIndicator.Foreground = StatusFailed;
         }
 
         _isLoggingIn = false;
         LoginBtn.IsEnabled = true;
+        SaveBtn.IsEnabled = true;
         UpdateConnectionStatus(_authService.IsLoggedIn);
     }
 
@@ -339,8 +445,9 @@ public partial class MainWindow : Window
         _authService.Stop();
         _isLoggingIn = false;
         LoginBtn.IsEnabled = true;
+        SaveBtn.IsEnabled = true;
         UpdateConnectionStatus(false);
-        AppendLog("已断开连接");
+        SetHint("已断开连接");
         StatusIndicator.Text = "● 已离线";
         StatusIndicator.Foreground = StatusOffline;
     }
@@ -350,42 +457,78 @@ public partial class MainWindow : Window
         try
         {
             await SaveConfigAsync().ConfigureAwait(true);
-            AppendLog("配置已保存");
+            SetHint("配置已保存");
         }
         catch (Exception ex)
         {
-            AppendLog($"保存失败: {ex.Message}");
+            SetHint($"保存失败: {ex.Message}");
         }
     }
 
     private void AppendLog(string message)
     {
-        var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_logLineCount >= MaxLogLines)
-            {
-                var text = _logBuilder.ToString();
-                var idx = text.IndexOf('\n');
-                if (idx >= 0)
-                {
-                    _logBuilder.Remove(0, idx + 1);
-                    _logLineCount--;
-                }
-            }
+        _logBuilder.AppendLine($"[{DateTime.Now:HH:mm:ss}] {message}");
+        Dispatcher.UIThread.Post(() => SetHint(message), DispatcherPriority.Background);
+    }
 
-            _logBuilder.AppendLine(line);
-            _logLineCount++;
+    private string? ValidateLoginConfig(ConfigModel config)
+    {
+        if (string.IsNullOrWhiteSpace(config.Username))
+            return "请填写校园网账号";
 
-            var logTextControl = this.FindControl<SelectableTextBlock>("LogText");
-            if (logTextControl != null)
-                logTextControl.Text = _logBuilder.ToString();
-        }, DispatcherPriority.Background);
+        if (string.IsNullOrWhiteSpace(config.Password))
+            return "请填写校园网密码";
+
+        if (!IPAddress.TryParse(config.Server, out _))
+            return "认证服务器配置错误";
+
+        if (config.HostIp == "0.0.0.0" || config.Mac == "0x888888888888")
+            return "本机网络信息未就绪";
+
+        return null;
+    }
+
+    private void UpdateConfigStatus(ConfigModel config)
+    {
+        var validationError = ValidateLoginConfig(config);
+        ConfigStatusText.Text = validationError == null ? "配置可用" : validationError;
+        ConfigStatusText.Foreground = validationError == null ? StatusReady : StatusWarning;
+    }
+
+    private async Task CopyTextToClipboardAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null)
+            throw new InvalidOperationException("当前环境不支持剪贴板");
+
+        await clipboard.SetTextAsync(text).ConfigureAwait(true);
+    }
+
+    private string BuildNetworkDiagnostics()
+    {
+        var config = ReadConfigFromUI();
+        return string.Join(Environment.NewLine,
+            "Drcom NET 网络诊断",
+            $"状态: {StatusIndicator.Text}",
+            $"账号: {config.Username}",
+            $"主机名: {config.HostName}",
+            $"网卡: {_networkSnapshot.AdapterName}",
+            $"IP: {_networkSnapshot.Ip}",
+            $"掩码: {_networkSnapshot.SubnetMask}",
+            $"MAC: {_networkSnapshot.Mac}",
+            $"网关: {_networkSnapshot.Gateway}",
+            $"DNS: {_networkSnapshot.Dns}");
+    }
+
+    private void SetHint(string text)
+    {
+        StatusHintText.Text = text;
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
-        if (_trayIcon != null)
+        var minimizeToTray = MinimizeToTrayCheck.IsChecked ?? _config.MinimizeToTray;
+        if (_trayIcon != null && minimizeToTray)
         {
             e.Cancel = true;
             Hide();

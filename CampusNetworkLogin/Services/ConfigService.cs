@@ -77,6 +77,7 @@ public class ConfigService
                 Username = config.Username,
                 HostIp = config.HostIp,
                 Mac = config.Mac,
+                Gateway = config.Gateway,
                 HostName = config.HostName,
                 HostOs = config.HostOs,
                 PrimaryDns = config.PrimaryDns,
@@ -95,11 +96,17 @@ public class ConfigService
 
             var options = new JsonSerializerOptions { WriteIndented = true };
             var json = JsonSerializer.Serialize(configToSave, typeof(ConfigModel), new CampusNetworkLogin.Helpers.AppJsonContext(options));
-            File.WriteAllText(_configPath, json, Encoding.UTF8);
+            var tempPath = _configPath + ".tmp";
+            File.WriteAllText(tempPath, json, Encoding.UTF8);
+
+            if (File.Exists(_configPath))
+                File.Replace(tempPath, _configPath, null);
+            else
+                File.Move(tempPath, _configPath);
         }
         catch (Exception ex)
         {
-            throw new Exception($"保存配置失败: {ex.Message}");
+            throw new InvalidOperationException($"保存配置失败: {ex.Message}", ex);
         }
     }
 }

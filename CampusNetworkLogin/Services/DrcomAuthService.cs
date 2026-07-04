@@ -11,7 +11,7 @@ using System.Text;
 namespace CampusNetworkLogin.Services;
 
 /// <summary>
-/// Dr.COM 鏍″洯缃戣璇佹牳蹇冩湇鍔?- 绉绘鑷?Python 鐗堟湰
+/// Dr.COM 校园网认证核心服务 - 移植自 Python 版本
 /// </summary>
 public class DrcomAuthService : IDisposable
 {
@@ -30,22 +30,24 @@ public class DrcomAuthService : IDisposable
     private bool _running = false;
     private bool _loggedIn = false;
     private CancellationTokenSource? _cts;
+    private Task? _workerTask;
+    private TaskCompletionSource<bool>? _initialLoginTcs;
 
-    // 鍗忚甯搁噺
+    // 协议常量
     private const byte ControlCheckStatus = 0x20;
     private const byte AdapterNum = 0x03;
     private const byte IpDog = 0x01;
     private static readonly byte[] AuthVersion = [0x68, 0x00];
     private static readonly byte[] KeepAliveVersion = [0xDC, 0x02];
 
-        // 运行时状态
+    // 运行时状态
     private byte[] _salt = [];
     private byte[] _tail = [];
 
     public bool IsLoggedIn => _loggedIn;
     public bool IsRunning => _running;
 
-        public event Action<string>? OnLog;
+    public event Action<string>? OnLog;
     public event Action<bool>? OnConnectionChanged;
 
     private void LogMessage(string message) => OnLog?.Invoke(message);
@@ -79,28 +81,53 @@ public class DrcomAuthService : IDisposable
         }
     }
 
-    public async Task StartLoginAsync()
+    public async Task<bool> StartLoginAsync()
     {
-        if (_running) return;
+        if (_running)
+        {
+            if (_loggedIn) return true;
+            if (_initialLoginTcs != null)
+                return await _initialLoginTcs.Task.ConfigureAwait(false);
+            return false;
+        }
+
         _running = true;
         _loggedIn = false;
         _cts = new CancellationTokenSource();
+        _initialLoginTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         OnConnectionChanged?.Invoke(false);
+
+        _workerTask = Task.Run(() => MainLoop(_cts.Token), _cts.Token);
+        _ = _workerTask.ContinueWith(task =>
+        {
+            if (task.IsFaulted)
+                LogMessage($"认证服务异常退出：{task.Exception?.GetBaseException().Message}");
+            _initialLoginTcs?.TrySetResult(false);
+        }, TaskScheduler.Default);
 
         try
         {
-            await Task.Run(() => MainLoop(_cts.Token), _cts.Token);
+            var loginResult = await _initialLoginTcs.Task
+                .WaitAsync(TimeSpan.FromSeconds(30), _cts.Token)
+                .ConfigureAwait(false);
+            _initialLoginTcs = null;
+
+            if (!loginResult)
+                Stop();
+
+            return loginResult;
         }
-        catch (OperationCanceledException) { }
-        catch (Exception) { }
-        finally
+        catch (TimeoutException)
         {
-            if (!_cts.IsCancellationRequested)
-            {
-                _running = false;
-                _loggedIn = false;
-                OnConnectionChanged?.Invoke(false);
-            }
+            LogMessage("首次登录超时，请检查账号、密码或网络环境");
+            _initialLoginTcs = null;
+            Stop();
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            _initialLoginTcs = null;
+            return false;
         }
     }
 
@@ -109,11 +136,12 @@ public class DrcomAuthService : IDisposable
         _running = false;
         _loggedIn = false;
         _cts?.Cancel();
+        _initialLoginTcs?.TrySetResult(false);
         CloseSocket();
         OnConnectionChanged?.Invoke(false);
     }
 
-        private void MainLoop(CancellationToken token)
+    private void MainLoop(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
@@ -126,6 +154,7 @@ public class DrcomAuthService : IDisposable
 
                 _tail = tail;
                 _loggedIn = true;
+                _initialLoginTcs?.TrySetResult(true);
                 OnConnectionChanged?.Invoke(true);
                 LogMessage("登录成功，进入保活阶段");
 
@@ -139,23 +168,29 @@ public class DrcomAuthService : IDisposable
             catch (TimeoutException ex)
             {
                 LogMessage($"连接超时：{ex.Message}");
+                if (!_loggedIn)
+                    _initialLoginTcs?.TrySetResult(false);
                 _loggedIn = false;
                 OnConnectionChanged?.Invoke(false);
                 CloseSocket();
-                if (!token.IsCancellationRequested) Thread.Sleep(3000);
+                DelayWithCancellation(3000, token);
             }
             catch (Exception ex)
             {
                 LogMessage($"登录失败：{ex.Message}");
+                if (!_loggedIn)
+                    _initialLoginTcs?.TrySetResult(false);
                 _loggedIn = false;
                 OnConnectionChanged?.Invoke(false);
                 CloseSocket();
-                if (!token.IsCancellationRequested) Thread.Sleep(3000);
+                DelayWithCancellation(3000, token);
             }
         }
+
+        _running = false;
     }
 
-    #region 鍗忚鏍稿績鏂规硶
+    #region 协议核心方法
 
     private byte[] Challenge(string server, CancellationToken token)
     {
@@ -165,7 +200,7 @@ public class DrcomAuthService : IDisposable
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var ranVal = timestamp + random.Next(0xF, 0xFF);
             var ran = (ushort)(ranVal % 0xFFFF);
-            var t = BitConverter.GetBytes(ran); // 灏忕搴? Python "<H"涔熸槸灏忕搴?
+            var t = BitConverter.GetBytes(ran); // 小端序，Python "<H" 也是小端序
             var packet = new byte[20];
             packet[0] = 0x01;
             packet[1] = 0x02;
@@ -226,18 +261,19 @@ public class DrcomAuthService : IDisposable
                     LogMessage("登录认证响应已接收");
                     return tail;
                 }
-                LogMessage($"登录认证响应异常 (data[0]={data[0]:X2})，3秒后重试...");
-                Thread.Sleep(token.IsCancellationRequested ? 0 : 3000);
+                var code = data.Length > 0 ? $"0x{data[0]:X2}" : "empty";
+                LogMessage($"登录认证响应异常 (data[0]={code})，3秒后重试...");
+                DelayWithCancellation(3000, token);
             }
             catch (TimeoutException)
             {
                 LogMessage("登录认证请求超时，3秒后重试...");
-                Thread.Sleep(token.IsCancellationRequested ? 0 : 3000);
+                DelayWithCancellation(3000, token);
             }
             catch (Exception ex)
             {
                 LogMessage($"登录认证异常：{ex.Message}");
-                Thread.Sleep(token.IsCancellationRequested ? 0 : 3000);
+                DelayWithCancellation(3000, token);
             }
         }
         throw new OperationCanceledException();
@@ -262,7 +298,7 @@ public class DrcomAuthService : IDisposable
 
         SendTo(packet, server);
 
-                while (!token.IsCancellationRequested)
+        while (!token.IsCancellationRequested)
         {
             var (data, _) = ReceiveFrom(token);
             if (data.Length > 0 && data[0] == 0x07)
@@ -278,7 +314,7 @@ public class DrcomAuthService : IDisposable
         var svrNum = 0;
         var currentTail = new byte[4];
 
-                // Step 1
+        // Step 1
         while (!token.IsCancellationRequested)
         {
             var packet = BuildKeepAlivePacket(svrNum, (ushort)(ran % 0xFFFF), currentTail, 1, svrNum == 0);
@@ -288,7 +324,7 @@ public class DrcomAuthService : IDisposable
 
             if (data.Length >= 4 && data[0] == 0x07 && (data[1] == svrNum || data[1] == 0x00) && data[2] == 0x28)
                 break;
-            if (data[0] == 0x07 && data[2] == 0x10)
+            if (data.Length >= 3 && data[0] == 0x07 && data[2] == 0x10)
             {
                 svrNum++;
                 packet = BuildKeepAlivePacket(svrNum, (ushort)(ran % 0xFFFF), currentTail, 1, false);
@@ -347,7 +383,7 @@ public class DrcomAuthService : IDisposable
             Array.Copy(recvData3, 16, currentTail, 0, 4);
 
 
-        // 鎸佺画淇濇椿寰幆
+        // 持续保活循环
 
         var i = svrNum;
         int failureCount = 0;
@@ -383,26 +419,30 @@ public class DrcomAuthService : IDisposable
                 i = (i + 2) % 0xFF;
 
                 for (int w = 0; w < 20 && !token.IsCancellationRequested; w++)
-                    Thread.Sleep(1000);
+                    DelayWithCancellation(1000, token);
 
                 if (!token.IsCancellationRequested)
                     KeepAlive1(salt, tail, password, server, token);
                     
                 failureCount = 0;
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception)
             {
                 failureCount++;
                 if (failureCount > 3) throw;
 
-                Thread.Sleep(1000);
+                DelayWithCancellation(1000, token);
             }
         }
     }
 
     #endregion
 
-    #region 灏佸寘鏋勫缓
+    #region 封包构建
 
     private byte[] BuildLoginPacket(byte[] salt, string username, string password, long mac)
     {
@@ -420,8 +460,8 @@ public class DrcomAuthService : IDisposable
 
 
         // ===== MAC XOR = dump(int(data[4:10].encode('hex'),16) ^ mac) =====
-        // Python data[4:10] -> 鍦╠ata鍒氭坊鍔犲畬md51鍚? data[4:10]=md51[0:6] (鍓?瀛楄妭)
-        var md51Part = md51[0..6]; // 鍙杕d51鍓?瀛楄妭
+        // Python data[4:10] -> data 刚添加完 md51 后，data[4:10] = md51[0:6]
+        var md51Part = md51[0..6]; // 取 md51 前 6 字节
         long md51Val = 0;
         for (int j = 0; j < 6; j++)
             md51Val = (md51Val << 8) | md51Part[j];
@@ -447,7 +487,7 @@ public class DrcomAuthService : IDisposable
         var ipBytes = ParseIp(_hostIp);
 
 
-        // ===== 寮€濮嬫瀯寤烘暟鎹寘 =====
+        // ===== 开始构建数据包 =====
         var data = new List<byte>
         {
             0x03, 0x01, 0x00,
@@ -547,8 +587,8 @@ public class DrcomAuthService : IDisposable
         data.AddRange(DumpLong(mac));
 
 
-        // 瀵嗙爜闀垮害濉厖: Python: if (len(pwd)/4) != 4: data += '\x00' * (len(pwd)/4)
-        // 鍙湁瀵嗙爜闀垮害涓嶄负16鏃舵墠濉厖
+        // 密码长度填充：Python: if (len(pwd)/4) != 4: data += '\x00' * (len(pwd)/4)
+        // 只有密码长度不为 16 时才填充
         if (pwdBytes.Length / 4 != 4)
         {
             var pwdPaddingLen = pwdBytes.Length / 4;
@@ -602,7 +642,7 @@ public class DrcomAuthService : IDisposable
 
     #endregion
 
-    #region 杈呭姪鏂规硶
+    #region 辅助方法
 
     private void CreateSocket()
     {
@@ -666,7 +706,6 @@ public class DrcomAuthService : IDisposable
         try
         {
             if (_socket != null) _socket.ReceiveTimeout = 500;
-            int count = 0;
             while (true)
             {
                 var remoteEp = new IPEndPoint(IPAddress.Any, 0);
@@ -675,7 +714,6 @@ public class DrcomAuthService : IDisposable
                 if (_socket != null)
                 {
                     _socket.ReceiveFrom(buffer, ref ep);
-                    count++;
                 }
                 else break;
             }
@@ -690,7 +728,7 @@ public class DrcomAuthService : IDisposable
 
     private static byte[] DumpLong(long val)
     {
-        // Python dump(): val -> hex string -> decode('hex') (澶х搴?
+        // Python dump(): val -> hex string -> decode('hex')，大端序
         var hex = val.ToString("x");
         if (hex.Length % 2 == 1) hex = "0" + hex;
         var bytes = new byte[hex.Length / 2];
@@ -701,8 +739,20 @@ public class DrcomAuthService : IDisposable
 
     private static byte[] ParseIp(string ip)
     {
-        try { return ip.Split('.').Select(byte.Parse).ToArray(); }
-        catch { return [0, 0, 0, 0]; }
+        if (!IPAddress.TryParse(ip, out var address))
+            return [0, 0, 0, 0];
+
+        var bytes = address.GetAddressBytes();
+        return bytes.Length == 4 ? bytes : [0, 0, 0, 0];
+    }
+
+    private static void DelayWithCancellation(int milliseconds, CancellationToken token)
+    {
+        if (milliseconds <= 0 || token.IsCancellationRequested)
+            token.ThrowIfCancellationRequested();
+
+        if (token.WaitHandle.WaitOne(milliseconds))
+            throw new OperationCanceledException(token);
     }
 
     private static byte[] Ror(byte[] md5Data, byte[] pwd)
@@ -721,8 +771,10 @@ public class DrcomAuthService : IDisposable
     {
         // Python:
         // ret = 1234
-        // for i in re.findall('....', s):        # 姣?涓瓧绗?瀛楄妭)涓€缁?        //     ret ^= int(i[::-1].encode('hex'), 16) # i[::-1]鍙嶈浆瀛楄妭搴? 鎸夊ぇ绔В閲?        // ret = (1968 * ret) & 0xffffffff
-        // return struct.pack('<I', ret)           # 返回小端序
+        // for i in re.findall('....', s): 每 4 字节一组
+        //     ret ^= int(i[::-1].encode('hex'), 16) # 反转字节序后按大端解析
+        // ret = (1968 * ret) & 0xffffffff
+        // return struct.pack('<I', ret) # 返回小端序
         uint ret = 1234;
         for (int i = 0; i + 4 <= data.Length; i += 4)
         {
@@ -738,11 +790,6 @@ public class DrcomAuthService : IDisposable
         return result;
     }
 
-    private static string BytesToHex(byte[] data) =>
-        BitConverter.ToString(data).Replace("-", "");
-
-    private void Log(string message) =>
-        OnLog?.Invoke($"[{DateTime.Now:HH:mm:ss}] {message}");
     public void Dispose()
     {
         Stop();

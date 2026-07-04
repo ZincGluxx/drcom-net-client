@@ -486,7 +486,10 @@ $RECYCLE.BIN/
 
 # 项目特定：发布/安装产物
 publish/
+publish_aot/
 publish_fd/
+publish_trimmed/
+publish_trimmed_v2/
 installer/
 
 # 运行时日志

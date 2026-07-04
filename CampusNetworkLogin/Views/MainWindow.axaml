@@ -2,127 +2,215 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="420"
-        Width="600" Height="420"
-        MinWidth="600" MinHeight="420"
+        mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="450"
+        Width="560" Height="450"
+        MinWidth="540" MinHeight="430"
         x:Class="CampusNetworkLogin.Views.MainWindow"
         Icon="avares://DrcomNET/Resources/icon.ico"
         Title="校园网登录"
         WindowStartupLocation="CenterScreen"
-        Background="Transparent"
-        TransparencyLevelHint="Mica, AcrylicBlur"
-        ExtendClientAreaToDecorationsHint="True"
+        Background="#EEF3F8"
+        ExtendClientAreaToDecorationsHint="False"
         CanResize="False"
-        FontFamily="system-ui, 'Microsoft YaHei', 'Segoe UI', sans-serif"
+        FontFamily="system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', sans-serif"
         Opacity="0">
 
     <Window.Styles>
-        <Style Selector="TextBox">
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="Background" Value="#0D000000"/>
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="#111827"/>
+            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
-        <Style Selector="TextBox:focus">
-            <Setter Property="BorderBrush" Value="#0078D4"/>
-            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="Foreground" Value="#111827"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.caption">
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+        <Style Selector="TextBlock.metric">
+            <Setter Property="Foreground" Value="#111827"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+        <Style Selector="Border.surface">
+            <Setter Property="Background" Value="#FEFEFF"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BoxShadow" Value="0 8 24 0 #12000000"/>
+        </Style>
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#111827"/>
         </Style>
         <Style Selector="Button">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
-                </Transitions>
-            </Setter>
-            <Setter Property="RenderTransform" Value="scale(1)"/>
-        </Style>
-        <Style Selector="Button:pressed">
-            <Setter Property="RenderTransform" Value="scale(0.97)"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
         <Style Selector="Button.primarybtn">
-            <Setter Property="Height" Value="38"/>
+            <Setter Property="Height" Value="36"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CornerRadius" Value="6"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.dangerbtn">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="#DC2626"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.secondarybtn">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#1F2937"/>
         </Style>
     </Window.Styles>
 
-    <Panel Background="Transparent">
-        <!-- Main Content Layout -->
-        <Grid RowDefinitions="36,*">
-            <!-- OS Title Bar Space (Text & Drag target provided completely by Windows OS) -->
-            <Panel Grid.Row="0" IsHitTestVisible="False" />
+    <Panel Background="#EEF3F8">
+        <Grid RowDefinitions="42,*">
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="16,0" PointerPressed="TitleBar_PointerPressed">
+                <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                    <Border Width="23" Height="23" CornerRadius="6" Background="#2563EB">
+                        <TextBlock Text="D" Foreground="White" FontWeight="Bold" FontSize="13"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="Drcom NET" Classes="title" VerticalAlignment="Center"/>
+                </StackPanel>
 
-            <!-- Main Content -->
-            <Grid Grid.Row="1" ColumnDefinitions="260,*" Margin="16,4,16,16">
-                <!-- Left Panel: Form & Actions -->
-                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
-                    <StackPanel Spacing="16">
-                        <!-- Network Form -->
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="账号设置" Foreground="#1A1A1A" FontSize="14" FontWeight="SemiBold"/>
-                            <TextBox x:Name="UsernameField" PlaceholderText="校园网邮箱" Height="36"/>
-                            <TextBox x:Name="PasswordField" PasswordChar="●" PlaceholderText="密码" Height="36"/>
-                            <TextBox x:Name="ServerField" PlaceholderText="认证IP (如 10.100.61.3)" Height="36"/>
+                <Border Grid.Column="1" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1"
+                        CornerRadius="12" Padding="10,4" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusIndicator" Text="● 未连接"
+                               FontWeight="SemiBold" Foreground="#FF453A" FontSize="12"/>
+                </Border>
+            </Grid>
+
+            <Grid Grid.Row="1" ColumnDefinitions="255,*" ColumnSpacing="12" Margin="16,4,16,16">
+                <Border Grid.Column="0" Classes="surface" Padding="14">
+                    <Grid RowDefinitions="Auto,10,Auto,10,Auto,*,Auto">
+                        <TextBlock Grid.Row="0" Text="登录" Classes="sectionTitle"/>
+
+                        <StackPanel Grid.Row="2" Spacing="8">
+                            <TextBox x:Name="UsernameField" PlaceholderText="校园网账号"/>
+                            <Grid ColumnDefinitions="*,8,Auto">
+                                <TextBox Grid.Column="0" x:Name="PasswordField" PasswordChar="●"
+                                         PlaceholderText="密码"/>
+                                <Button Grid.Column="2" x:Name="TogglePasswordBtn"
+                                        Content="显示" Classes="secondarybtn"
+                                        Width="54" Click="TogglePasswordBtn_Click"/>
+                            </Grid>
                         </StackPanel>
-                        
-                        <!-- Settings -->
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="行为设置" Foreground="#1A1A1A" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4"/>
+
+                        <Grid Grid.Row="4" ColumnDefinitions="*,8,*">
+                            <Button Grid.Column="0" x:Name="LoginBtn" Content="登录" Classes="primarybtn"
+                                    Click="LoginBtn_Click"/>
+                            <Button Grid.Column="0" x:Name="LogoutBtn" Content="下线" Classes="dangerbtn"
+                                    Click="LogoutBtn_Click" IsVisible="False"/>
+                            <Button Grid.Column="2" x:Name="SaveBtn" Content="保存" Classes="secondarybtn"
+                                    Click="SaveBtn_Click"/>
+                        </Grid>
+
+                        <StackPanel Grid.Row="5" Spacing="8" VerticalAlignment="Center">
                             <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Grid.Column="0" Text="自动登录" Foreground="#1A1A1A" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="自动登录" Classes="caption" VerticalAlignment="Center"/>
                                 <ToggleSwitch Grid.Column="1" x:Name="AutoLoginCheck"/>
                             </Grid>
                             <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Grid.Column="0" Text="开机自启" Foreground="#1A1A1A" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="开机自启" Classes="caption" VerticalAlignment="Center"/>
                                 <ToggleSwitch Grid.Column="1" x:Name="AutoStartCheck"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="关闭到托盘" Classes="caption" VerticalAlignment="Center"/>
+                                <ToggleSwitch Grid.Column="1" x:Name="MinimizeToTrayCheck"/>
                             </Grid>
                         </StackPanel>
 
-                        <!-- Buttons -->
-                        <Grid ColumnDefinitions="*,8,*">
-                            <Button Grid.Column="0" x:Name="LoginBtn" Content="登录" Classes="primarybtn" 
-                                    Background="#0078D4" Foreground="White" HorizontalAlignment="Stretch" Click="LoginBtn_Click"/>
-                            <Button Grid.Column="0" x:Name="LogoutBtn" Content="下线" Classes="primarybtn" 
-                                    Background="#E81123" Foreground="White" HorizontalAlignment="Stretch" Click="LogoutBtn_Click" IsVisible="False"/>
-                            <Button Grid.Column="2" x:Name="SaveBtn" Content="保存配置" Classes="primarybtn"
-                                    Background="#F3F4F6" Foreground="#1A1A1A" HorizontalAlignment="Stretch" Click="SaveBtn_Click"/>
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
-                
-                <!-- Right Panel: Logs & Status -->
-                <Grid Grid.Column="1" RowDefinitions="*,12,Auto">
-                    <!-- Logs -->
-                    <Border Grid.Row="0" Background="#1E1E1E" CornerRadius="8" Padding="12"
-                            BorderBrush="#333333" BorderThickness="1"
-                            BoxShadow="inset 0 4 10 0 #40000000">
-                        <Grid RowDefinitions="Auto,*">
-                            <TextBlock Grid.Row="0" Text="TERMINAL LOG" Foreground="#71717A" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                <SelectableTextBlock x:Name="LogText" TextWrapping="Wrap" FontSize="12" FontFamily="Consolas, 'Courier New', monospace" Foreground="#A1E579" LineHeight="18"/>
-                            </ScrollViewer>
-                        </Grid>
+                        <TextBlock Grid.Row="6" x:Name="ConfigStatusText" Text="待检查"
+                                   Classes="caption"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel Grid.Column="1" Spacing="10">
+                    <Border Classes="panel" Padding="12">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="连接检测" Classes="sectionTitle"/>
+                                <TextBlock Grid.Column="1" x:Name="KeepAliveStatusText" Text="保活未启动"
+                                           Classes="caption"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,8,*">
+                                <Button Grid.Column="0" x:Name="PingInternalBtn" Content="内网"
+                                        Classes="secondarybtn" Click="PingInternalBtn_Click"/>
+                                <Button Grid.Column="2" x:Name="PingExternalBtn" Content="外网"
+                                        Classes="secondarybtn" Click="PingExternalBtn_Click"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,8,*">
+                                <StackPanel>
+                                    <TextBlock Text="jlu.edu.cn" Classes="caption"/>
+                                    <TextBlock x:Name="InternalStatusText" Text="未检测" Classes="metric"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="www.baidu.com" Classes="caption"/>
+                                    <TextBlock x:Name="ExternalStatusText" Text="未检测" Classes="metric"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Status -->
-                    <Border Grid.Row="2" Background="#FFFFFF" CornerRadius="8" Padding="16,12"
-                            BorderBrush="#E2E8F0" BorderThickness="1"
-                            BoxShadow="0 2 8 0 #08000000">
-                        <Grid ColumnDefinitions="Auto,*">
-                            <TextBlock Grid.Column="0" x:Name="StatusIndicator" Text="● 未连接" 
-                                       FontWeight="SemiBold" Foreground="#E81123" FontSize="14" VerticalAlignment="Center"/>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="16">
-                                <TextBlock x:Name="IpStatusText" Text="IP: --" Foreground="#605E5C" FontSize="12"/>
-                                <TextBlock x:Name="MacStatusText" Text="MAC: --" Foreground="#605E5C" FontSize="12"/>
-                            </StackPanel>
-                        </Grid>
+                    <Border Classes="panel" Padding="12">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="本机网络" Classes="sectionTitle"/>
+                                <Button Grid.Column="1" x:Name="RefreshNetworkBtn" Content="刷新"
+                                        Classes="secondarybtn" Width="58"
+                                        Click="RefreshNetworkBtn_Click"/>
+                            </Grid>
+                            <TextBlock x:Name="AdapterStatusText" Text="网卡: --" Classes="metric"/>
+                            <Grid ColumnDefinitions="*,8,*">
+                                <TextBlock x:Name="IpStatusText" Text="IP: --" Classes="metric"/>
+                                <TextBlock Grid.Column="2" x:Name="GatewayStatusText" Text="网关: --" Classes="metric"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,8,*">
+                                <TextBlock x:Name="DnsStatusText" Text="DNS: --" Classes="metric"/>
+                                <TextBlock Grid.Column="2" x:Name="MacStatusText" Text="MAC: --" Classes="metric"/>
+                            </Grid>
+                            <Button x:Name="EditNetworkBtn" Content="设置静态 IP / 网关 / DNS"
+                                    Classes="secondarybtn" HorizontalAlignment="Stretch"
+                                    Click="EditNetworkBtn_Click"/>
+                        </StackPanel>
                     </Border>
-                </Grid>
+
+                    <TextBlock x:Name="StatusHintText" Text="认证服务器已内置"
+                               Classes="caption" TextWrapping="Wrap"/>
+                </StackPanel>
             </Grid>
         </Grid>
     </Panel>

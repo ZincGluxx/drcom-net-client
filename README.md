@@ -6,7 +6,7 @@
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)]()
 [![Avalonia](https://img.shields.io/badge/UI-Avalonia-8B5CF6?style=flat-square)](https://avaloniaui.net/)
 
-一款基于 **.NET** 与 **Avalonia** 开发的吉林大学 (JLU) 校园网 Dr.COM 登录客户端。经过重新设计，现已全面拥抱全新的单页并排布局与终端级日志。
+一款基于 **.NET** 与 **Avalonia** 开发的吉林大学 (JLU) 校园网 Dr.COM 登录客户端。经过重新设计，现已升级为面向日常使用的校园网登录面板，集成认证、保活、网络诊断、托盘守护与 Native AOT 发布。
 
 👉 **[点击这里跳转到 Latest Release 下载最新安装包](https://github.com/ZincGluxx/drcom-net-client/releases/latest)**
 
@@ -14,18 +14,19 @@
 
 ## ✨ 主要特性
 
-* **单页并排无边框设计**：全新的 600×420 布局设计。左侧为配置表单（学号、密码、网络、模式）与登录按钮，右侧为全黑深色终端风实时日志（支持文本选中复制），操作不再需要频繁切页。
-* **Mica/半透明视觉设计**：利用 Windows 11 的原生特性，完全集成 Mica/Acrylic 设置，使客户端的背景能完美融合到桌面的壁纸与主题中。
-* **托盘级静默守护**：支持开机自启并配置自动登录。可最小化至系统托盘，利用原生的异步 Socket 循环发送心跳包保活，解决休眠重连断网的问题。
-* **安装程序双管齐下**：
-  * **框架依赖版 (Framework-Dependent)**：小巧，仅需安装 .NET 8 或更高版本 Desktop Runtime。
-  * **原生 AOT 版 (Native AOT)**：纯正的本机代码版本，极其迅速的冷启动时间，零外部运行时依赖。
+* **紧凑登录面板**：小窗口集中管理账号、密码、自动登录、开机自启、关闭到托盘和登录状态。
+* **静态网络设置**：可直接修改 Windows 网卡的静态 IP、子网掩码、网关和 DNS，适合校园网固定地址场景。
+* **连通性检测**：内置内网 `jlu.edu.cn` 与外网 `www.baidu.com` Ping 检测，快速判断当前网络状态。
+* **登录前检查**：登录前校验账号、密码和本机网络信息，减少无意义的认证重试。
+* **托盘级静默守护**：支持开机自启、自动登录、关闭到托盘、托盘登录/下线/刷新网络信息，并利用异步 Socket 循环发送心跳包保活。
+* **原生 AOT 版 (Native AOT)**：纯正的本机代码版本，启动迅速，零外部运行时依赖。
 
 ## 🚀 编译与构建
 
 ### 1. 环境准备
 
-* [.NET 8.0 SDK](https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0) 或更高版本
+* [.NET 10 SDK](https://dotnet.microsoft.com/) 或更高版本
+* Visual Studio C++ x64 工具链（仅 Native AOT 发布需要）
 * [Inno Setup 6](https://jrsoftware.org/isinfo.php)（仅用于制作安装包）
 
 ### 2. 构建主程序
@@ -33,10 +34,10 @@
 在项目根目录运行：
 
 ```powershell
-dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -o publish -r win-x64
+dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -r win-x64 -o artifacts/publish_aot -p:PublishAot=true -p:SelfContained=true
 ```
 
-构建成功后，发布文件位于仓库根目录的 `publish/` 文件夹（已加入 `.gitignore`）。
+构建成功后，发布文件位于 `artifacts/publish_aot/`。
 
 ### 3. 构建安装包
 
@@ -44,10 +45,10 @@ dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -o publis
 2. 使用 Inno Setup 打开根目录的 `setup.iss`，或在命令行运行：
 
 ```powershell
-ISCC setup.iss
+ISCC setup_aot.iss
 ```
 
-3. 编译完成后，在项目根目录生成 `校园网登录_v1.0.1_Setup.exe`。
+3. 编译完成后生成 `校园网登录_v1.0.4_AOT_Setup.exe`。
 
 ## 📂 项目结构
 
@@ -62,8 +63,18 @@ setup.iss          # Inno Setup 安装脚本
 
 ## 📝 更新日志
 
+### v1.0.4 (2026)
+- ✨ 重构为更小的校园网登录工具窗口，移除日志展示，避免界面拥挤。
+- 🛠️ 增加 Windows 静态 IP / 子网掩码 / 网关 / DNS 设置弹窗。
+- 🌐 增加内网 `jlu.edu.cn` 与外网 `www.baidu.com` 连通性检测。
+- 🔒 认证服务器固定为内置地址，界面不再暴露服务器输入框。
+- 🔧 修复主窗口与静态网络设置窗口的标题栏、表单和按钮错位问题。
+
 ### v1.0.3 (2025)
-- ✨ 彻底重构 UI，摒弃多页切换，采用 600×420 **左右双列并行设计**。左屏精简表单，右屏黑底高亮终极 Terminal Log。
+- ✨ 彻底重构 UI，采用可调整大小的 **校园网登录工作台**。左侧为登录与启动配置，右侧为认证状态、网络诊断、快速操作和实时日志。
+- 🧭 增加网卡、IP、MAC、网关、DNS、主机名展示与诊断复制能力。
+- ✅ 增加登录前输入校验与首次登录自动网络检测。
+- 🧩 托盘菜单增加刷新网络信息与复制网络诊断。
 - 🪟 全面适配 **Windows 11 Mica 材质**与原生无边框阴影 (去除硬编码 `WindowDecorations="None"`)。
 - 🔧 修复上个版本去边框操作导致的所有字体层叠干扰、阴影锯齿及拖拽失效问题。
 - 🎉 支持 NativeAOT 独立纯本地编译发布，极致启动。

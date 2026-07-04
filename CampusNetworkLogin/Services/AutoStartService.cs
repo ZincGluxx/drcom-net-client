@@ -22,7 +22,8 @@ public class AutoStartService
             using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
             if (key == null) return false;
             var value = key.GetValue(AppName) as string;
-            return !string.IsNullOrEmpty(value) && value.Equals(GetExecutablePath(), StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrEmpty(value) &&
+                   Unquote(value).Equals(GetExecutablePath(), StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
@@ -37,12 +38,16 @@ public class AutoStartService
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, true);
+            using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath, true);
             if (key == null) return;
 
             if (enable)
             {
-                key.SetValue(AppName, GetExecutablePath(), RegistryValueKind.String);
+                var executablePath = GetExecutablePath();
+                if (string.IsNullOrWhiteSpace(executablePath))
+                    throw new InvalidOperationException("无法获取当前程序路径");
+
+                key.SetValue(AppName, $"\"{executablePath}\"", RegistryValueKind.String);
             }
             else
             {
@@ -52,8 +57,16 @@ public class AutoStartService
         }
         catch (Exception ex)
         {
-            throw new Exception($"设置开机启动失败: {ex.Message}");
+            throw new InvalidOperationException($"设置开机启动失败: {ex.Message}", ex);
         }
+    }
+
+    private static string Unquote(string value)
+    {
+        value = value.Trim();
+        return value.Length >= 2 && value[0] == '"' && value[^1] == '"'
+            ? value[1..^1]
+            : value;
     }
 
     private static string GetExecutablePath()
