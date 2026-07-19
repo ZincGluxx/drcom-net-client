@@ -3,12 +3,13 @@ using System.IO;
 using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading.Tasks;
 using CampusNetworkLogin.Models;
 
 namespace CampusNetworkLogin.Services;
 
 /// <summary>
-/// 配置读写服务 - 使用JSON文件存储，密码加密
+/// 配置读写服务 - 使用JSON文件存储，密码加密，原生异步IO
 /// </summary>
 public class ConfigService
 {
@@ -25,16 +26,22 @@ public class ConfigService
     }
 
     /// <summary>
-    /// 加载配置
+    /// 异步加载配置
     /// </summary>
-    public ConfigModel Load()
+    public async Task<ConfigModel> LoadAsync()
     {
         try
         {
             if (!File.Exists(_configPath))
                 return new ConfigModel();
 
-            var json = File.ReadAllText(_configPath, Encoding.UTF8);
+            string json;
+            using (var stream = new FileStream(_configPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true))
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                json = await reader.ReadToEndAsync().ConfigureAwait(false);
+            }
+
             var config = JsonSerializer.Deserialize(json, CampusNetworkLogin.Helpers.AppJsonContext.Default.ConfigModel) ?? new ConfigModel();
 
             // 解密密码
@@ -61,9 +68,9 @@ public class ConfigService
     }
 
     /// <summary>
-    /// 保存配置
+    /// 异步保存配置
     /// </summary>
-    public void Save(ConfigModel config)
+    public async Task SaveAsync(ConfigModel config)
     {
         try
         {
@@ -97,7 +104,12 @@ public class ConfigService
             var options = new JsonSerializerOptions { WriteIndented = true };
             var json = JsonSerializer.Serialize(configToSave, typeof(ConfigModel), new CampusNetworkLogin.Helpers.AppJsonContext(options));
             var tempPath = _configPath + ".tmp";
-            File.WriteAllText(tempPath, json, Encoding.UTF8);
+
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            using (var writer = new StreamWriter(stream, Encoding.UTF8))
+            {
+                await writer.WriteAsync(json).ConfigureAwait(false);
+            }
 
             if (File.Exists(_configPath))
                 File.Replace(tempPath, _configPath, null);

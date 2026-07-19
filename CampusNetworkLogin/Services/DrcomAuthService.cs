@@ -10,6 +10,18 @@ using System.Text;
 
 namespace CampusNetworkLogin.Services;
 
+public enum LogLevel { Info, Error }
+
+public enum ConnectionStatus { Disconnected, Connecting, Connected }
+
+public enum LoginStep { None, Challenge, Authenticating, KeepAlive, Connected }
+
+public class AuthServerUnreachableException : Exception
+{
+    public AuthServerUnreachableException(string message) : base(message) { }
+    public AuthServerUnreachableException(string message, Exception inner) : base(message, inner) { }
+}
+
 /// <summary>
 /// Dr.COM 校园网认证核心服务 - 移植自 Python 版本
 /// </summary>
@@ -27,11 +39,12 @@ public class DrcomAuthService : IDisposable
     private string _hostOs = "Windows 10";
     private string _primaryDns = "10.10.10.10";
     private string _dhcpServer = "0.0.0.0";
-    private bool _running = false;
-    private bool _loggedIn = false;
+    private volatile bool _running = false;
+    private volatile bool _loggedIn = false;
     private CancellationTokenSource? _cts;
     private Task? _workerTask;
     private TaskCompletionSource<bool>? _initialLoginTcs;
+    private readonly byte[] _recvBuffer = new byte[1024];
 
     // 协议常量
     private const byte ControlCheckStatus = 0x20;
@@ -43,14 +56,24 @@ public class DrcomAuthService : IDisposable
     // 运行时状态
     private byte[] _salt = [];
     private byte[] _tail = [];
+    private bool _wasConnected;
+    private bool _isReconnecting;
+    private int _reconnectAttempts;
+    private const int MaxReconnectAttempts = 3;
+    private const int BaseReconnectDelayMs = 3000;
+    private const int MaxReconnectDelayMs = 60000;
 
     public bool IsLoggedIn => _loggedIn;
     public bool IsRunning => _running;
+    public DateTime? ConnectedSince { get; private set; }
 
-    public event Action<string>? OnLog;
-    public event Action<bool>? OnConnectionChanged;
+    public event Action<string, LogLevel>? OnLog;
+    public event Action<ConnectionStatus>? OnStatusChanged;
+    public event Action<LoginStep>? OnLoginStepChanged;
+    public event Action<string>? OnError;
 
-    private void LogMessage(string message) => OnLog?.Invoke(message);
+    private void LogInfo(string msg) => OnLog?.Invoke(msg, LogLevel.Info);
+    private void LogError(string msg) { OnLog?.Invoke(msg, LogLevel.Error); OnError?.Invoke(msg); }
 
     public void UpdateConfig(
         string server, string username, string password,
@@ -93,15 +116,19 @@ public class DrcomAuthService : IDisposable
 
         _running = true;
         _loggedIn = false;
+        _wasConnected = false;
+        _isReconnecting = false;
+        _reconnectAttempts = 0;
+        ConnectedSince = null;
         _cts = new CancellationTokenSource();
         _initialLoginTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        OnConnectionChanged?.Invoke(false);
+        OnStatusChanged?.Invoke(ConnectionStatus.Connecting);
 
         _workerTask = Task.Run(() => MainLoop(_cts.Token), _cts.Token);
         _ = _workerTask.ContinueWith(task =>
         {
             if (task.IsFaulted)
-                LogMessage($"认证服务异常退出：{task.Exception?.GetBaseException().Message}");
+                LogError($"认证服务异常退出：{task.Exception?.GetBaseException().Message}");
             _initialLoginTcs?.TrySetResult(false);
         }, TaskScheduler.Default);
 
@@ -119,7 +146,7 @@ public class DrcomAuthService : IDisposable
         }
         catch (TimeoutException)
         {
-            LogMessage("首次登录超时，请检查账号、密码或网络环境");
+            LogError("首次登录超时，请检查账号、密码或网络环境");
             _initialLoginTcs = null;
             Stop();
             return false;
@@ -135,59 +162,109 @@ public class DrcomAuthService : IDisposable
     {
         _running = false;
         _loggedIn = false;
+        _wasConnected = false;
+        _isReconnecting = false;
+        _reconnectAttempts = 0;
+        ConnectedSince = null;
         _cts?.Cancel();
         _initialLoginTcs?.TrySetResult(false);
         CloseSocket();
-        OnConnectionChanged?.Invoke(false);
+        OnStatusChanged?.Invoke(ConnectionStatus.Disconnected);
     }
 
     private void MainLoop(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
+            // 重连模式下检查重试次数
+            if (_isReconnecting)
+            {
+                if (_reconnectAttempts >= MaxReconnectAttempts)
+                {
+                    LogError($"重连失败：已尝试 {MaxReconnectAttempts} 次，放弃重连");
+                    _isReconnecting = false;
+                    _reconnectAttempts = 0;
+                    _running = false;
+                    OnStatusChanged?.Invoke(ConnectionStatus.Disconnected);
+                    break;
+                }
+
+                var delay = Math.Min(BaseReconnectDelayMs * (1 << _reconnectAttempts), MaxReconnectDelayMs);
+                LogInfo($"正在尝试重连 ({_reconnectAttempts + 1}/{MaxReconnectAttempts})...");
+                try { DelayWithCancellation(delay, token); }
+                catch (OperationCanceledException) { break; }
+                _reconnectAttempts++;
+            }
+
             try
             {
                 CreateSocket();
-                LogMessage("正在获取认证挑战...");
+                OnLoginStepChanged?.Invoke(LoginStep.Challenge);
+                LogInfo("正在获取认证挑战...");
+                OnLoginStepChanged?.Invoke(LoginStep.Authenticating);
                 var tail = Login(_username, _password, _serverIp, token);
                 if (token.IsCancellationRequested) break;
-
                 _tail = tail;
                 _loggedIn = true;
+                _wasConnected = true;
+                _isReconnecting = false;
+                _reconnectAttempts = 0;
+                ConnectedSince = DateTime.Now;
                 _initialLoginTcs?.TrySetResult(true);
-                OnConnectionChanged?.Invoke(true);
-                LogMessage("登录成功，进入保活阶段");
+                OnStatusChanged?.Invoke(ConnectionStatus.Connected);
+                OnLoginStepChanged?.Invoke(LoginStep.Connected);
+                LogInfo("登录成功，进入保活阶段");
 
                 EmptySocketBuffer();
+                OnLoginStepChanged?.Invoke(LoginStep.KeepAlive);
                 KeepAlive1(_salt, _tail, _password, _serverIp, token);
                 if (token.IsCancellationRequested) break;
 
                 KeepAlive2(_salt, _tail, _password, _serverIp, token);
             }
             catch (OperationCanceledException) { break; }
+            catch (AuthServerUnreachableException ex)
+            {
+                LogError($"服务器不可达：{ex.Message}");
+                if (!_loggedIn) _initialLoginTcs?.TrySetResult(false);
+                HandleDisconnect();
+                CloseSocket();
+            }
             catch (TimeoutException ex)
             {
-                LogMessage($"连接超时：{ex.Message}");
-                if (!_loggedIn)
-                    _initialLoginTcs?.TrySetResult(false);
-                _loggedIn = false;
-                OnConnectionChanged?.Invoke(false);
+                LogError($"连接超时：{ex.Message}");
+                if (!_loggedIn) _initialLoginTcs?.TrySetResult(false);
+                HandleDisconnect();
                 CloseSocket();
-                DelayWithCancellation(3000, token);
             }
             catch (Exception ex)
             {
-                LogMessage($"登录失败：{ex.Message}");
-                if (!_loggedIn)
-                    _initialLoginTcs?.TrySetResult(false);
-                _loggedIn = false;
-                OnConnectionChanged?.Invoke(false);
+                LogError($"登录失败：{ex.Message}");
+                if (!_loggedIn) _initialLoginTcs?.TrySetResult(false);
+                HandleDisconnect();
                 CloseSocket();
-                DelayWithCancellation(3000, token);
             }
         }
 
         _running = false;
+    }
+
+    private void HandleDisconnect()
+    {
+        _loggedIn = false;
+        ConnectedSince = null;
+        OnLoginStepChanged?.Invoke(LoginStep.None);
+
+        if (_wasConnected)
+        {
+            _isReconnecting = true;
+            _reconnectAttempts = 0;
+            OnStatusChanged?.Invoke(ConnectionStatus.Connecting);
+        }
+        else
+        {
+            OnStatusChanged?.Invoke(ConnectionStatus.Disconnected);
+        }
     }
 
     #region 协议核心方法
@@ -195,12 +272,13 @@ public class DrcomAuthService : IDisposable
     private byte[] Challenge(string server, CancellationToken token)
     {
         var random = new Random();
+        int consecutiveFailures = 0;
         while (!token.IsCancellationRequested)
         {
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var ranVal = timestamp + random.Next(0xF, 0xFF);
             var ran = (ushort)(ranVal % 0xFFFF);
-            var t = BitConverter.GetBytes(ran); // 小端序，Python "<H" 也是小端序
+            var t = BitConverter.GetBytes(ran);
             var packet = new byte[20];
             packet[0] = 0x01;
             packet[1] = 0x02;
@@ -208,10 +286,7 @@ public class DrcomAuthService : IDisposable
             packet[3] = t[1];
             packet[4] = 0x09;
 
-
-
-
-                        try
+            try
             {
                 SendTo(packet, server);
                 var (data, _) = ReceiveFrom(token);
@@ -220,18 +295,28 @@ public class DrcomAuthService : IDisposable
                 {
                     var salt = new byte[4];
                     Array.Copy(data, 4, salt, 0, 4);
-                    LogMessage("挑战码获取成功");
+                    LogInfo("挑战码获取成功");
+                    consecutiveFailures = 0;
                     return salt;
                 }
-                LogMessage("挑战码响应格式异常，重试中...");
+                LogInfo("挑战码响应格式异常，重试中...");
             }
             catch (TimeoutException)
             {
-                LogMessage("挑战码请求超时，重试中...");
+                LogInfo("挑战码请求超时，重试中...");
+                consecutiveFailures++;
+            }
+            catch (SocketException ex)
+            {
+                LogInfo($"挑战码网络异常：{ex.Message}");
+                consecutiveFailures++;
+                if (consecutiveFailures >= 5)
+                    throw new AuthServerUnreachableException("认证服务器不可达", ex);
             }
             catch (Exception ex)
             {
-                LogMessage($"挑战码请求异常：{ex.Message}");
+                LogInfo($"挑战码请求异常：{ex.Message}");
+                consecutiveFailures++;
             }
         }
         throw new OperationCanceledException();
@@ -246,7 +331,7 @@ public class DrcomAuthService : IDisposable
 
             var packet = BuildLoginPacket(salt, username, password, _mac);
 
-                        try
+            try
             {
                 SendTo(packet, server);
                 var (data, _) = ReceiveFrom(token);
@@ -258,21 +343,21 @@ public class DrcomAuthService : IDisposable
                         Array.Copy(data, 23, tail, 0, 16);
                     else if (data.Length >= 22)
                         Array.Copy(data, data.Length - 22, tail, 0, Math.Min(16, data.Length - 22));
-                    LogMessage("登录认证响应已接收");
+                    LogInfo("登录认证响应已接收");
                     return tail;
                 }
                 var code = data.Length > 0 ? $"0x{data[0]:X2}" : "empty";
-                LogMessage($"登录认证响应异常 (data[0]={code})，3秒后重试...");
+                LogInfo($"登录认证响应异常 (data[0]={code})，3秒后重试...");
                 DelayWithCancellation(3000, token);
             }
             catch (TimeoutException)
             {
-                LogMessage("登录认证请求超时，3秒后重试...");
+                LogInfo("登录认证请求超时，3秒后重试...");
                 DelayWithCancellation(3000, token);
             }
             catch (Exception ex)
             {
-                LogMessage($"登录认证异常：{ex.Message}");
+                LogInfo($"登录认证异常：{ex.Message}");
                 DelayWithCancellation(3000, token);
             }
         }
@@ -587,14 +672,10 @@ public class DrcomAuthService : IDisposable
         data.AddRange(DumpLong(mac));
 
 
-        // 密码长度填充：Python: if (len(pwd)/4) != 4: data += '\x00' * (len(pwd)/4)
-        // 只有密码长度不为 16 时才填充
-        if (pwdBytes.Length / 4 != 4)
-        {
-            var pwdPaddingLen = pwdBytes.Length / 4;
-            data.AddRange(new byte[pwdPaddingLen]);
-
-        }
+        // 密码填充：与 Python 版保持一致，添加 (pwdLen / 4) 个零字节
+        var pwdPaddingCount = pwdBytes.Length / 4;
+        if (pwdPaddingCount > 0)
+            data.AddRange(new byte[pwdPaddingCount]);
 
         data.AddRange([0x60, 0xA2]);
         data.AddRange(new byte[28]);
@@ -676,16 +757,15 @@ public class DrcomAuthService : IDisposable
             throw new InvalidOperationException("Socket not initialized");
 
         var remoteEp = new IPEndPoint(IPAddress.Any, 0);
-        var buffer = new byte[1024];
 
         while (!token.IsCancellationRequested)
         {
             try
             {
                 EndPoint ep = remoteEp;
-                var len = _socket.ReceiveFrom(buffer, ref ep);
+                var len = _socket.ReceiveFrom(_recvBuffer, ref ep);
                 var result = new byte[len];
-                Array.Copy(buffer, result, len);
+                Array.Copy(_recvBuffer, result, len);
                 return (result, (IPEndPoint)ep);
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
@@ -702,7 +782,6 @@ public class DrcomAuthService : IDisposable
 
     private void EmptySocketBuffer()
     {
-
         try
         {
             if (_socket != null) _socket.ReceiveTimeout = 500;
@@ -710,11 +789,8 @@ public class DrcomAuthService : IDisposable
             {
                 var remoteEp = new IPEndPoint(IPAddress.Any, 0);
                 EndPoint ep = remoteEp;
-                var buffer = new byte[1024];
                 if (_socket != null)
-                {
-                    _socket.ReceiveFrom(buffer, ref ep);
-                }
+                    _socket.ReceiveFrom(_recvBuffer, ref ep);
                 else break;
             }
         }
@@ -723,7 +799,6 @@ public class DrcomAuthService : IDisposable
         {
             if (_socket != null) _socket.ReceiveTimeout = 3000;
         }
-
     }
 
     private static byte[] DumpLong(long val)
@@ -793,6 +868,8 @@ public class DrcomAuthService : IDisposable
     public void Dispose()
     {
         Stop();
+        // 等待后台任务彻底退出，避免 CancellationTokenSource 泄漏
+        try { _workerTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _cts?.Dispose();
     }
 

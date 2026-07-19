@@ -22,6 +22,9 @@ public partial class MainWindow : Window
     private const string AuthServer = "10.100.61.3";
     private const string DefaultDns = "10.10.10.10";
 
+    // 状态机
+    private enum ConnState { Disconnected, Connecting, Connected, Offline }
+
     private readonly Task<ConfigModel> _configLoadTask;
     private readonly ConfigService _configService = new();
     private readonly AutoStartService _autoStartService = new();
@@ -31,16 +34,22 @@ public partial class MainWindow : Window
     private bool _isLoggingIn;
     private bool _initialized;
     private bool _autoStartHandlerAttached;
-    private bool _passwordVisible;
     private TrayIcon? _trayIcon;
+    private ConnState _state = ConnState.Disconnected;
+    private DispatcherTimer? _durationTimer;
+    private DispatcherTimer? _autoTrayTimer;
     private readonly StringBuilder _logBuilder = new();
+    private const int MaxLogLength = 4096;
 
-    private static readonly IBrush StatusConnected = new SolidColorBrush(Color.Parse("#34C759"));
-    private static readonly IBrush StatusDisconnected = new SolidColorBrush(Color.Parse("#FF453A"));
-    private static readonly IBrush StatusFailed = new SolidColorBrush(Color.Parse("#EF4444"));
-    private static readonly IBrush StatusOffline = new SolidColorBrush(Color.Parse("#64748B"));
-    private static readonly IBrush StatusReady = new SolidColorBrush(Color.Parse("#16A34A"));
-    private static readonly IBrush StatusWarning = new SolidColorBrush(Color.Parse("#D97706"));
+    private static readonly IBrush BrushConnected = new SolidColorBrush(Color.Parse("#34C759"));
+    private static readonly IBrush BrushDisconnected = new SolidColorBrush(Color.Parse("#FF453A"));
+    private static readonly IBrush BrushConnecting = new SolidColorBrush(Color.Parse("#D97706"));
+    private static readonly IBrush BrushOffline = new SolidColorBrush(Color.Parse("#64748B"));
+    private static readonly IBrush BrushReady = new SolidColorBrush(Color.Parse("#16A34A"));
+    private static readonly IBrush BrushWarning = new SolidColorBrush(Color.Parse("#D97706"));
+    private static readonly IBrush BrushStepPending = new SolidColorBrush(Color.Parse("#CBD5E1"));
+    private static readonly IBrush BrushStepActive = new SolidColorBrush(Color.Parse("#2563EB"));
+    private static readonly IBrush BrushStepDone = new SolidColorBrush(Color.Parse("#34C759"));
 
     public MainWindow() : this(Task.FromResult(new ConfigModel()))
     {
@@ -60,7 +69,17 @@ public partial class MainWindow : Window
         catch { /* ignore */ }
 
         SetupAuthEvents();
-        Opened += (_, _) => Dispatcher.UIThread.Post(() => Opacity = 1, DispatcherPriority.Render);
+        SetupNetworkChangeListener();
+        SetupMultiInstanceActivation();
+
+        // Enter 键快捷登录
+        KeyDown += OnWindowKeyDown;
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Return && !_isLoggingIn && _state != ConnState.Connected)
+            _ = DoLogin();
     }
 
     protected override void OnOpened(EventArgs e)
@@ -68,6 +87,10 @@ public partial class MainWindow : Window
         base.OnOpened(e);
         if (_initialized) return;
         _initialized = true;
+
+        // 淡入动画（AXAML 中已配置 DoubleTransition，此处触发）
+        Opacity = 1;
+
         _ = InitializeAsync();
     }
 
@@ -104,6 +127,48 @@ public partial class MainWindow : Window
             }, DispatcherPriority.Background);
         }
     }
+
+    #region 网络变化监听
+
+    private void SetupNetworkChangeListener()
+    {
+        try
+        {
+            NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+        }
+        catch { /* 某些环境不支持此 API */ }
+    }
+
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        if (e.IsAvailable && !_isLoggingIn && _state != ConnState.Connected && _state != ConnState.Connecting)
+        {
+            Dispatcher.UIThread.Post(async () =>
+            {
+                if (!string.IsNullOrWhiteSpace(_config.Username) &&
+                    !string.IsNullOrWhiteSpace(_config.Password))
+                {
+                    SetHint("网络已恢复，正在尝试重连...");
+                    await Task.Delay(1500);
+                    await DoLogin();
+                }
+            });
+        }
+    }
+
+    #endregion
+
+    #region 多实例激活
+
+    private void SetupMultiInstanceActivation()
+    {
+        Program.ShowMainWindowRequested += () =>
+        {
+            Dispatcher.UIThread.Post(() => ShowFromTray());
+        };
+    }
+
+    #endregion
 
     private async Task RefreshNetworkInfoAsync()
     {
@@ -147,7 +212,11 @@ public partial class MainWindow : Window
             menu.Add(refreshItem);
 
             var copyDiagnosticsItem = new NativeMenuItem("复制网络诊断");
-            copyDiagnosticsItem.Click += async (_, _) => await CopyTextToClipboardAsync(BuildNetworkDiagnostics());
+            copyDiagnosticsItem.Click += async (_, _) =>
+            {
+                try { await CopyTextToClipboardAsync(BuildNetworkDiagnostics()); }
+                catch { /* 剪贴板不可用时静默忽略 */ }
+            };
             menu.Add(copyDiagnosticsItem);
             menu.Add(new NativeMenuItemSeparator());
 
@@ -181,6 +250,8 @@ public partial class MainWindow : Window
 
     private void QuitApp()
     {
+        _durationTimer?.Stop();
+        _autoTrayTimer?.Stop();
         _trayIcon?.Dispose();
         _trayIcon = null;
         _authService.Stop();
@@ -251,35 +322,238 @@ public partial class MainWindow : Window
         };
     }
 
+    #region 认证事件 & 状态机
+
     private void SetupAuthEvents()
     {
-        _authService.OnLog += AppendLog;
-        _authService.OnConnectionChanged += connected =>
+        _authService.OnLog += (msg, level) =>
         {
-            Dispatcher.UIThread.Post(() => UpdateConnectionStatus(connected), DispatcherPriority.Background);
+            _logBuilder.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
+            if (_logBuilder.Length > MaxLogLength)
+                _logBuilder.Remove(0, _logBuilder.Length - MaxLogLength);
+            // UI 提示区仅显示 Error 级别日志
+            if (level == LogLevel.Error)
+                Dispatcher.UIThread.Post(() => SetHint(msg), DispatcherPriority.Background);
+        };
+
+        _authService.OnStatusChanged += status =>
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                switch (status)
+                {
+                    case ConnectionStatus.Connecting:
+                        SetState(ConnState.Connecting);
+                        break;
+                    case ConnectionStatus.Connected:
+                        SetState(ConnState.Connected);
+                        break;
+                    case ConnectionStatus.Disconnected:
+                        if (_state == ConnState.Connected || _state == ConnState.Connecting)
+                            SetState(ConnState.Offline);
+                        break;
+                }
+            }, DispatcherPriority.Background);
+        };
+
+        _authService.OnLoginStepChanged += step =>
+        {
+            Dispatcher.UIThread.Post(() => UpdateStepIndicator(step), DispatcherPriority.Background);
+        };
+
+        _authService.OnError += msg =>
+        {
+            Dispatcher.UIThread.Post(() => SetHint(msg), DispatcherPriority.Background);
         };
     }
 
-    private void UpdateConnectionStatus(bool connected)
+    private void SetState(ConnState newState)
     {
-        StatusIndicator.Text = connected ? "● 已连接" : "● 未连接";
-        StatusIndicator.Foreground = connected ? StatusConnected : StatusDisconnected;
-        KeepAliveStatusText.Text = connected ? "保活运行中" : "保活未启动";
-        KeepAliveStatusText.Foreground = connected ? StatusReady : StatusOffline;
-        LoginBtn.IsVisible = !connected;
-        LogoutBtn.IsVisible = connected;
+        _state = newState;
+        switch (newState)
+        {
+            case ConnState.Disconnected:
+                StatusIndicator.Text = "● 未连接";
+                StatusIndicator.Foreground = BrushDisconnected;
+                KeepAliveStatusText.Text = "保活未启动";
+                KeepAliveStatusText.Foreground = BrushOffline;
+                LoginBtn.IsVisible = true;
+                LogoutBtn.IsVisible = false;
+                StepIndicatorBorder.IsVisible = false;
+                StopDurationTimer();
+                break;
+
+            case ConnState.Connecting:
+                StatusIndicator.Text = "● 连接中";
+                StatusIndicator.Foreground = BrushConnecting;
+                KeepAliveStatusText.Text = "正在认证...";
+                KeepAliveStatusText.Foreground = BrushWarning;
+                LoginBtn.IsVisible = false;
+                LogoutBtn.IsVisible = false;
+                StepIndicatorBorder.IsVisible = true;
+                UpdateStepIndicator(LoginStep.None);
+                break;
+
+            case ConnState.Connected:
+                StatusIndicator.Text = "● 已连接";
+                StatusIndicator.Foreground = BrushConnected;
+                KeepAliveStatusText.Text = "保活运行中";
+                KeepAliveStatusText.Foreground = BrushReady;
+                LoginBtn.IsVisible = false;
+                LogoutBtn.IsVisible = true;
+                // 保持步骤指示器可见，显示全部完成状态
+                UpdateStepIndicator(LoginStep.Connected);
+                StartDurationTimer();
+                ScheduleAutoTray();
+                break;
+
+            case ConnState.Offline:
+                StatusIndicator.Text = "● 已离线";
+                StatusIndicator.Foreground = BrushOffline;
+                KeepAliveStatusText.Text = "保活已停止";
+                KeepAliveStatusText.Foreground = BrushOffline;
+                LoginBtn.IsVisible = true;
+                LogoutBtn.IsVisible = false;
+                StepIndicatorBorder.IsVisible = false;
+                StopDurationTimer();
+                break;
+        }
 
         if (_trayIcon != null)
-            _trayIcon.ToolTipText = connected ? "校园网登录 - 已连接" : "校园网登录 - 未连接";
+        {
+            _trayIcon.ToolTipText = newState switch
+            {
+                ConnState.Connected => "校园网登录 - 已连接",
+                ConnState.Connecting => "校园网登录 - 连接中",
+                _ => "校园网登录 - 未连接"
+            };
+        }
     }
+
+    private void UpdateStepIndicator(LoginStep step)
+    {
+        var pendingBrush = BrushStepPending;
+        var activeBrush = BrushStepActive;
+        var doneBrush = BrushStepDone;
+        var pendingFg = Color.Parse("#94A3B8");
+        var activeFg = Color.Parse("#2563EB");
+        var doneFg = Color.Parse("#34C759");
+
+        // 默认全部 pending
+        SetStepVisual(Step1Dot, Step1Text, pendingBrush, pendingFg);
+        SetStepVisual(Step2Dot, Step2Text, pendingBrush, pendingFg);
+        SetStepVisual(Step3Dot, Step3Text, pendingBrush, pendingFg);
+
+        switch (step)
+        {
+            case LoginStep.Challenge:
+                SetStepVisual(Step1Dot, Step1Text, activeBrush, activeFg);
+                break;
+            case LoginStep.Authenticating:
+                SetStepVisual(Step1Dot, Step1Text, doneBrush, doneFg);
+                SetStepVisual(Step2Dot, Step2Text, activeBrush, activeFg);
+                break;
+            case LoginStep.KeepAlive:
+            case LoginStep.Connected:
+                SetStepVisual(Step1Dot, Step1Text, doneBrush, doneFg);
+                SetStepVisual(Step2Dot, Step2Text, doneBrush, doneFg);
+                SetStepVisual(Step3Dot, Step3Text, step == LoginStep.Connected ? doneBrush : activeBrush,
+                    step == LoginStep.Connected ? doneFg : activeFg);
+                break;
+        }
+    }
+
+    private static void SetStepVisual(Border dot, TextBlock text, IBrush brush, Color fg)
+    {
+        dot.Background = brush;
+        text.Foreground = brush;
+    }
+
+    #endregion
+
+    #region 连接时长计时器
+
+    private void StartDurationTimer()
+    {
+        StopDurationTimer();
+        ConnectionDurationText.IsVisible = true;
+        UpdateDurationText();
+
+        _durationTimer = new DispatcherTimer(TimeSpan.FromSeconds(30), DispatcherPriority.Background,
+            (_, _) => UpdateDurationText());
+        _durationTimer.Start();
+    }
+
+    private void StopDurationTimer()
+    {
+        _durationTimer?.Stop();
+        _durationTimer = null;
+        ConnectionDurationText.IsVisible = false;
+    }
+
+    private void UpdateDurationText()
+    {
+        var since = _authService.ConnectedSince;
+        if (since == null)
+        {
+            ConnectionDurationText.Text = "";
+            return;
+        }
+
+        var elapsed = DateTime.Now - since.Value;
+        if (elapsed.TotalHours >= 1)
+            ConnectionDurationText.Text = $"已连接 {elapsed.Hours} 小时 {elapsed.Minutes} 分钟";
+        else
+            ConnectionDurationText.Text = $"已连接 {elapsed.Minutes} 分钟";
+    }
+
+    #endregion
+
+    #region 登录成功后自动最小化到托盘
+
+    private void ScheduleAutoTray()
+    {
+        _autoTrayTimer?.Stop();
+        _autoTrayTimer = new DispatcherTimer(TimeSpan.FromSeconds(3), DispatcherPriority.Background, (_, _) =>
+        {
+            _autoTrayTimer?.Stop();
+            _autoTrayTimer = null;
+
+            var minimizeToTray = MinimizeToTrayCheck.IsChecked ?? _config.MinimizeToTray;
+            if (minimizeToTray && _trayIcon != null)
+            {
+                Hide();
+                if (_trayIcon != null)
+                    _trayIcon.ToolTipText = "校园网登录 - 登录成功，已在托盘运行";
+            }
+        });
+        _autoTrayTimer.Start();
+    }
+
+    #endregion
 
     private async void LoginBtn_Click(object? sender, RoutedEventArgs e) => await DoLogin();
 
     private void LogoutBtn_Click(object? sender, RoutedEventArgs e) => Disconnect();
 
+    private void TogglePasswordBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        if (PasswordField.PasswordChar == '\0')
+        {
+            PasswordField.PasswordChar = '●';
+            TogglePasswordBtn.Content = "显示";
+        }
+        else
+        {
+            PasswordField.PasswordChar = '\0';
+            TogglePasswordBtn.Content = "隐藏";
+        }
+    }
+
     private async void RefreshNetworkBtn_Click(object? sender, RoutedEventArgs e)
     {
         RefreshNetworkBtn.IsEnabled = false;
+        RefreshNetworkBtn.Content = "刷新中...";
         try
         {
             SetHint("正在刷新本机网络...");
@@ -293,6 +567,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            RefreshNetworkBtn.Content = "刷新";
             RefreshNetworkBtn.IsEnabled = true;
         }
     }
@@ -322,7 +597,7 @@ public partial class MainWindow : Window
     {
         button.IsEnabled = false;
         target.Text = "检测中...";
-        target.Foreground = StatusOffline;
+        target.Foreground = BrushOffline;
 
         try
         {
@@ -331,18 +606,18 @@ public partial class MainWindow : Window
             if (reply.Status == IPStatus.Success)
             {
                 target.Text = $"成功 {reply.RoundtripTime}ms";
-                target.Foreground = StatusReady;
+                target.Foreground = BrushReady;
             }
             else
             {
                 target.Text = $"失败 {reply.Status}";
-                target.Foreground = StatusWarning;
+                target.Foreground = BrushWarning;
             }
         }
         catch (Exception ex)
         {
             target.Text = $"失败 {ex.Message}";
-            target.Foreground = StatusWarning;
+            target.Foreground = BrushWarning;
         }
         finally
         {
@@ -350,17 +625,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private void TogglePasswordBtn_Click(object? sender, RoutedEventArgs e)
-    {
-        _passwordVisible = !_passwordVisible;
-        PasswordField.PasswordChar = _passwordVisible ? '\0' : '●';
-        TogglePasswordBtn.Content = _passwordVisible ? "隐藏" : "显示";
-    }
-
     private async Task SaveConfigAsync()
     {
         var config = ReadConfigFromUI();
-        await Task.Run(() => _configService.Save(config)).ConfigureAwait(false);
+        await _configService.SaveAsync(config).ConfigureAwait(false);
         _config = config;
         UpdateConfigStatus(config);
     }
@@ -394,8 +662,9 @@ public partial class MainWindow : Window
         if (validationError != null)
         {
             SetHint(validationError);
+            SetState(ConnState.Disconnected);
             StatusIndicator.Text = "● 待完善";
-            StatusIndicator.Foreground = StatusWarning;
+            StatusIndicator.Foreground = BrushWarning;
             UpdateConfigStatus(config);
             return;
         }
@@ -407,7 +676,7 @@ public partial class MainWindow : Window
         _isLoggingIn = true;
         LoginBtn.IsEnabled = false;
         SaveBtn.IsEnabled = false;
-        UpdateConnectionStatus(false);
+        SetState(ConnState.Connecting);
         SetHint("正在连接认证服务器...");
 
         try
@@ -417,27 +686,33 @@ public partial class MainWindow : Window
             if (loginSucceeded && _authService.IsLoggedIn)
             {
                 SetHint("登录成功");
-                StatusIndicator.Text = "● 已连接";
-                StatusIndicator.Foreground = StatusConnected;
+                // SetState(ConnState.Connected) 由 OnStatusChanged 事件驱动
             }
             else
             {
                 SetHint("登录失败，请检查账号密码");
-                StatusIndicator.Text = "● 登录失败";
-                StatusIndicator.Foreground = StatusFailed;
+                SetState(ConnState.Disconnected);
             }
+        }
+        catch (AuthServerUnreachableException)
+        {
+            SetHint("认证服务器不可达，请检查网络连接");
+            SetState(ConnState.Disconnected);
+        }
+        catch (TimeoutException)
+        {
+            SetHint("连接超时，请稍后重试");
+            SetState(ConnState.Disconnected);
         }
         catch (Exception ex)
         {
             SetHint($"登录失败: {ex.Message}");
-            StatusIndicator.Text = "● 登录失败";
-            StatusIndicator.Foreground = StatusFailed;
+            SetState(ConnState.Disconnected);
         }
 
         _isLoggingIn = false;
         LoginBtn.IsEnabled = true;
         SaveBtn.IsEnabled = true;
-        UpdateConnectionStatus(_authService.IsLoggedIn);
     }
 
     private void Disconnect()
@@ -446,10 +721,8 @@ public partial class MainWindow : Window
         _isLoggingIn = false;
         LoginBtn.IsEnabled = true;
         SaveBtn.IsEnabled = true;
-        UpdateConnectionStatus(false);
+        SetState(ConnState.Offline);
         SetHint("已断开连接");
-        StatusIndicator.Text = "● 已离线";
-        StatusIndicator.Foreground = StatusOffline;
     }
 
     private async void SaveBtn_Click(object? sender, RoutedEventArgs? e)
@@ -463,12 +736,6 @@ public partial class MainWindow : Window
         {
             SetHint($"保存失败: {ex.Message}");
         }
-    }
-
-    private void AppendLog(string message)
-    {
-        _logBuilder.AppendLine($"[{DateTime.Now:HH:mm:ss}] {message}");
-        Dispatcher.UIThread.Post(() => SetHint(message), DispatcherPriority.Background);
     }
 
     private string? ValidateLoginConfig(ConfigModel config)
@@ -492,7 +759,7 @@ public partial class MainWindow : Window
     {
         var validationError = ValidateLoginConfig(config);
         ConfigStatusText.Text = validationError == null ? "配置可用" : validationError;
-        ConfigStatusText.Foreground = validationError == null ? StatusReady : StatusWarning;
+        ConfigStatusText.Foreground = validationError == null ? BrushReady : BrushWarning;
     }
 
     private async Task CopyTextToClipboardAsync(string text)
@@ -532,6 +799,8 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
             Hide();
+            if (_trayIcon != null)
+                _trayIcon.ToolTipText = "校园网登录 - 已最小化到托盘";
             return;
         }
         base.OnClosing(e);
@@ -539,7 +808,11 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+        _durationTimer?.Stop();
+        _autoTrayTimer?.Stop();
         _authService.Stop();
+        try { _authService.Dispose(); } catch { }
         _trayIcon?.Dispose();
         base.OnClosed(e);
     }

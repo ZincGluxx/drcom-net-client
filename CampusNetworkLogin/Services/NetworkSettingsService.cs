@@ -24,13 +24,15 @@ public static class NetworkSettingsService
 
     private static async Task RunElevatedAsync(string command)
     {
+        // 使用 PowerShell 隐藏窗口执行，避免 cmd.exe 闪现
         var startInfo = new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c {command}",
+            FileName = "powershell.exe",
+            Arguments = $"-WindowStyle Hidden -NoProfile -Command \"{Escape(command)}\"",
             UseShellExecute = true,
             Verb = "runas",
-            WindowStyle = ProcessWindowStyle.Hidden
+            WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true
         };
 
         using var process = Process.Start(startInfo)

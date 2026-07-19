@@ -7,7 +7,7 @@
     <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
       <AssemblyName>DrcomNET</AssemblyName>
       <RootNamespace>CampusNetworkLogin</RootNamespace>
-    <Version>1.0.4.0</Version>
+    <Version>1.0.5.0</Version>
       <Description>Drcom .NET for JLU - 校园网登录客户端</Description>
 
     <!-- NativeAOT -->

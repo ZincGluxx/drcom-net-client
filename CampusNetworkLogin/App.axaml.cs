@@ -19,7 +19,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var configTask = Task.Run(() => new ConfigService().Load());
+            var configTask = new ConfigService().LoadAsync();
             desktop.MainWindow = new MainWindow(configTask);
         }
 
