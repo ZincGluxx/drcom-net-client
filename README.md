@@ -45,23 +45,34 @@ dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -r win-x6
 2. 使用 Inno Setup 打开根目录的 `setup.iss`，或在命令行运行：
 
 ```powershell
-ISCC setup_aot.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
 ```
 
-3. 编译完成后生成 `校园网登录_v1.0.4_AOT_Setup.exe`。
+3. 编译完成后生成 `DrcomNET_v1.0.5_Setup.exe`。
 
 ## 📂 项目结构
 
 ```
 CampusNetworkLogin/
-├── Views/         # Avalonia 界面 (MainWindow.axaml / .cs)
-├── Services/      # 核心服务 (DrcomAuthService, ConfigService, AutoStartService, NetworkInfoService)
-├── Models/        # 配置模型 (ConfigModel)
-└── Resources/     # 应用图标
-setup.iss          # Inno Setup 安装脚本
+├── Views/         # Avalonia 界面 (MainWindow / NetworkSettingsWindow)
+├── Services/      # 核心服务 (DrcomAuthService, ConfigService, AutoStartService, NetworkInfo/SettingsService)
+├── Helpers/       # 辅助工具 (PrivacyHelper)
+├── Models/        # 配置模型 (ConfigModel, AppJsonContext)
+├── Resources/     # 应用图标
+└── Program.cs     # 入口 + NamedPipe 多实例激活
+setup.iss          # Inno Setup 安装脚本 (旧版检测/自动关闭/64位)
 ```
 
 ## 📝 更新日志
+
+### v1.0.5 (2026-07)
+- 🧠 **内存优化**：保活阶段 Socket 接收缓冲区复用，消除每 20s 循环内多次 1KB 重复分配；日志 StringBuilder 限制 4KB 上限防止无限增长。
+- 🔌 **事件泄漏修复**：`NetworkChange.NetworkAvailabilityChanged` 在窗口关闭时正确退订，避免持有引用泄漏。
+- 🎨 **UI 紧凑化**：压缩 MainWindow 各区域 Margin/Padding/Spacing，窗口高度 450→435，内容更充实。
+- 🔐 **密码显隐切换**：密码框右侧新增"显示/隐藏"按钮，兼容 Avalonia 12.0.3（无需 `RevealButtonEnabled`）。
+- 📐 **NetworkSettingsWindow 修复**：按钮添加 `HorizontalAlignment="Stretch"` 确保等宽拉伸，修复不同 DPI 下错位。
+- 🔵 **步骤指示器修正**：登录步骤指示器（挑战→认证→保活）时序调整，连接成功后保持全绿完成状态可见。
+- 📦 **安装脚本升级**：新增旧版检测卸载提示、安装前自动关闭运行中程序、`x64compatible` 架构标识。
 
 ### v1.0.4 (2026)
 - ✨ 重构为更小的校园网登录工具窗口，移除日志展示，避免界面拥挤。
