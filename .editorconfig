@@ -1,0 +1,68 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{cs,axaml}]
+indent_size = 4
+
+[*.cs]
+dotnet_sort_system_directives_first = true
+csharp_new_line_before_open_brace = all
+csharp_prefer_braces = true:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_prefer_primary_constructors = false:silent
+
+dotnet_naming_rule.private_instance_fields.symbols = private_instance_fields
+dotnet_naming_rule.private_instance_fields.style = underscore_camel_case
+dotnet_naming_rule.private_instance_fields.severity = warning
+
+dotnet_naming_rule.private_static_fields.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields.style = static_camel_case
+dotnet_naming_rule.private_static_fields.severity = warning
+
+dotnet_naming_rule.constants.symbols = constants
+dotnet_naming_rule.constants.style = pascal_case
+dotnet_naming_rule.constants.severity = warning
+
+dotnet_naming_symbols.private_instance_fields.applicable_kinds = field
+dotnet_naming_symbols.private_instance_fields.applicable_accessibilities = private
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+
+dotnet_naming_symbols.constants.applicable_kinds = field
+dotnet_naming_symbols.constants.required_modifiers = const
+
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+dotnet_naming_style.static_camel_case.required_prefix = s_
+dotnet_naming_style.static_camel_case.capitalization = camel_case
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+# Dr.COM 认证协议明确要求 MD5；这里不是通用密码哈希。
+dotnet_diagnostic.CA5351.severity = none
+
+# 桌面 UI、托盘和后台守护入口必须兜底异常，避免进程因系统组件异常退出。
+dotnet_diagnostic.CA1031.severity = none
+
+# Avalonia 事件处理和控件更新必须保留 UI 同步上下文。
+dotnet_diagnostic.CA2007.severity = none
+
+# Avalonia 的 XAML/AOT 激活需要公开 App 与 Window 类型。
+dotnet_diagnostic.CA1515.severity = none
+
+# 框架回调参数由 Avalonia 保证非空。
+dotnet_diagnostic.CA1062.severity = none
+
+# 内部协议异常不作为公共、可序列化 API 暴露。
+dotnet_diagnostic.CA1032.severity = none
+
+# CancellationTokenSource 通过 Interlocked 转移所有权，并在延续任务或 Dispose 中释放。
+dotnet_diagnostic.CA2213.severity = none

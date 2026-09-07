@@ -1,14 +1,14 @@
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using CampusNetworkLogin.Models;
-using CampusNetworkLogin.Services;
-using CampusNetworkLogin.Views;
-using System.Threading.Tasks;
+using DrComCampus.Models;
+using DrComCampus.Services;
+using DrComCampus.Views;
 
-namespace CampusNetworkLogin;
+namespace DrComCampus;
 
-public partial class App : Application
+public sealed partial class App : Application
 {
     public override void Initialize()
     {
@@ -19,8 +19,8 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var configTask = new ConfigService().LoadAsync();
-            desktop.MainWindow = new MainWindow(configTask);
+            var configTask = new ConfigurationService().LoadAsync();
+            desktop.MainWindow = new CampusLoginWindow(configTask);
         }
 
         base.OnFrameworkInitializationCompleted();

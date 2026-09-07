@@ -1,24 +1,31 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-      <OutputType>WinExe</OutputType>
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-      <Nullable>enable</Nullable>
+    <Nullable>enable</Nullable>
     <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
-      <AssemblyName>DrcomNET</AssemblyName>
-      <RootNamespace>CampusNetworkLogin</RootNamespace>
-    <Version>1.0.5.0</Version>
-      <Description>Drcom .NET for JLU - 校园网登录客户端</Description>
+    <AssemblyName>DrComCampus</AssemblyName>
+    <RootNamespace>DrComCampus</RootNamespace>
+    <Version>1.0.6.0</Version>
+    <AssemblyTitle>DrCom 校园网助手</AssemblyTitle>
+    <Product>DrCom 校园网助手</Product>
+    <Company>ZincGluxx</Company>
+    <Description>适用于吉林大学校园网的轻量 Dr.COM 认证客户端</Description>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
     <!-- NativeAOT -->
     <SelfContained>true</SelfContained>
     <PublishAot>true</PublishAot>
-      <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <DebugType>none</DebugType>
     <OptimizationPreference>Size</OptimizationPreference>
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
     <AvaloniaNameAttributeIsGenerated>true</AvaloniaNameAttributeIsGenerated>
-    </PropertyGroup>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.3" />
@@ -29,11 +36,9 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Resources\icon.ico" />
-  </ItemGroup>
-
-    <ItemGroup>
-    <None Include="Resources\icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Resources\icon.ico"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
-

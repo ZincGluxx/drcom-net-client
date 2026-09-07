@@ -492,6 +492,18 @@ publish_trimmed/
 publish_trimmed_v2/
 installer/
 
+# 本机编辑器、索引器与 AI 助手状态
+.cursor/
+.codegraph/
+.codex/
+.agents/
+
+# 本机运行配置、诊断与性能分析产物
+config.json
+*.dmp
+*.etl
+*.speedscope.json
+
 # 运行时日志
 crash.log
 drcom_debug.log

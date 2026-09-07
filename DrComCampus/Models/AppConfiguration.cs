@@ -1,9 +1,9 @@
-namespace CampusNetworkLogin.Models;
+namespace DrComCampus.Models;
 
 /// <summary>
 /// 校园网登录配置模型
 /// </summary>
-public class ConfigModel
+internal sealed class AppConfiguration
 {
     public string Server { get; set; } = "10.100.61.3";
     public string Username { get; set; } = "";
@@ -15,7 +15,8 @@ public class ConfigModel
     public string HostOs { get; set; } = "Windows 10";
     public string PrimaryDns { get; set; } = "10.10.10.10";
     public string DhcpServer { get; set; } = "0.0.0.0";
-    public bool AutoLogin { get; set; } = false;
-    public bool StartWithWindows { get; set; } = false;
+    public bool AutoLogin { get; set; }
+    public bool AutoReconnect { get; set; } = true;
+    public bool StartWithWindows { get; set; }
     public bool MinimizeToTray { get; set; } = true;
 }

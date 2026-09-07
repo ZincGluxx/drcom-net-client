@@ -1,0 +1,223 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="520" d:DesignHeight="390"
+        Width="520" Height="390" MinWidth="480" MinHeight="360"
+        x:Class="DrComCampus.Views.CampusLoginWindow"
+        Icon="avares://DrComCampus/Resources/icon.ico"
+        Title="DrCom 校园网助手"
+        WindowStartupLocation="CenterScreen"
+        Background="#F1F5F9"
+        CanResize="True"
+        FontFamily="system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', sans-serif">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="#0F172A"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="Foreground" Value="#0F172A"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.caption">
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="TextBlock.metric">
+            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+        <Style Selector="Border.surface">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#F8FAFC"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="27"/>
+            <Setter Property="Padding" Value="7,3"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="ToggleSwitch">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="MinHeight" Value="22"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.danger">
+            <Setter Property="Background" Value="#EF4444"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="Button.secondary">
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#334155"/>
+        </Style>
+        <Style Selector="Button.ghost">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="#EFF6FF"/>
+            <Setter Property="Foreground" Value="#1D4ED8"/>
+        </Style>
+    </Window.Styles>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="8,7,8,8" Spacing="5">
+            <!-- 标题、连接状态与主操作合并为单个紧凑区域。 -->
+            <Border Classes="surface" Padding="8,6" PointerPressed="OnTitleBarPointerPressed">
+                <Grid ColumnDefinitions="Auto,*,Auto,76" ColumnSpacing="6">
+                    <Border Width="24" Height="24" CornerRadius="6" Background="#2563EB"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="D" Foreground="White" FontWeight="Bold" FontSize="12"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="DrCom 校园网助手" Classes="sectionTitle"/>
+                            <TextBlock x:Name="KeepAliveStatusText" Text="保活未启动" Classes="caption"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ConnectionDurationText" Text="" Classes="caption"
+                                       VerticalAlignment="Center" IsVisible="False"/>
+                        </StackPanel>
+                        <TextBlock x:Name="StatusHintText" Text="填写账号后即可连接" Classes="caption"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <Border x:Name="StepIndicatorBorder" IsVisible="False" Margin="0,2,0,0"
+                                Background="#EFF6FF" CornerRadius="5" Padding="5,2">
+                            <WrapPanel Orientation="Horizontal">
+                                <Border x:Name="Step1Dot" Width="7" Height="7" CornerRadius="4" Background="#CBD5E1"
+                                        VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBlock x:Name="Step1Text" Text="挑战" FontSize="9" Foreground="#64748B" Margin="0,0,6,0"/>
+                                <TextBlock Text="›" Foreground="#94A3B8" FontSize="9" Margin="0,0,6,0"/>
+                                <Border x:Name="Step2Dot" Width="7" Height="7" CornerRadius="4" Background="#CBD5E1"
+                                        VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBlock x:Name="Step2Text" Text="认证" FontSize="9" Foreground="#64748B" Margin="0,0,6,0"/>
+                                <TextBlock Text="›" Foreground="#94A3B8" FontSize="9" Margin="0,0,6,0"/>
+                                <Border x:Name="Step3Dot" Width="7" Height="7" CornerRadius="4" Background="#CBD5E1"
+                                        VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBlock x:Name="Step3Text" Text="保活" FontSize="9" Foreground="#64748B"/>
+                            </WrapPanel>
+                        </Border>
+                    </StackPanel>
+                    <Border Grid.Column="2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                            CornerRadius="11" Padding="6,2" VerticalAlignment="Center">
+                        <TextBlock x:Name="ConnectionStatusText" Text="● 未连接" Foreground="#EF4444"
+                                   FontWeight="SemiBold" FontSize="10"/>
+                    </Border>
+                    <Grid Grid.Column="3" VerticalAlignment="Center">
+                        <Button x:Name="LoginButton" Content="连接" Classes="primary" Click="OnLoginButtonClick"/>
+                        <Button x:Name="LogoutButton" Content="断开" Classes="danger"
+                                Click="OnLogoutButtonClick" IsVisible="False"/>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Grid ColumnDefinitions="0.9*,1.1*" ColumnSpacing="5">
+                <!-- 账号设置 -->
+                <Border Classes="surface" Padding="8">
+                    <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="账号设置" Classes="sectionTitle"/>
+                            <TextBlock Grid.Column="1" x:Name="ConfigStatusText" Text="待检查" Classes="caption"/>
+                        </Grid>
+                        <TextBox x:Name="UsernameTextBox" PlaceholderText="校园网账号"/>
+                        <Grid ColumnDefinitions="*,43" ColumnSpacing="4">
+                            <TextBox x:Name="PasswordTextBox" PasswordChar="●" PlaceholderText="密码"/>
+                            <Button Grid.Column="1" x:Name="TogglePasswordButton" Content="显示"
+                                    Classes="secondary" Click="OnTogglePasswordButtonClick"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,4,*">
+                            <Button x:Name="SaveButton" Content="保存账号" Classes="secondary" Click="OnSaveButtonClick"/>
+                            <Button Grid.Column="2" x:Name="EditNetworkButton" Content="网络设置"
+                                    Classes="secondary" Click="OnEditNetworkButtonClick"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" RowSpacing="1">
+                            <ToggleSwitch x:Name="AutoLoginToggle" Content="自动登录"/>
+                            <ToggleSwitch Grid.Column="1" x:Name="AutoReconnectToggle" Content="自动重连"/>
+                            <ToggleSwitch Grid.Row="1" x:Name="AutoStartToggle" Content="开机启动"/>
+                            <ToggleSwitch Grid.Row="1" Grid.Column="1" x:Name="MinimizeToTrayToggle" Content="关闭到托盘"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 网络概览与连通性测试全部常驻显示。 -->
+                <Border Grid.Column="1" Classes="surface" Padding="8">
+                    <StackPanel Spacing="3">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="网络概览" Classes="sectionTitle"/>
+                                <TextBlock x:Name="AdapterStatusText" Text="网卡: --" Classes="caption"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" x:Name="RefreshNetworkButton" Content="刷新"
+                                    Classes="ghost" Width="44" Click="OnRefreshNetworkButtonClick"/>
+                        </Grid>
+                        <WrapPanel Orientation="Horizontal">
+                            <Border Background="#F0FDF4" CornerRadius="9" Padding="7,2" Margin="0,0,5,0">
+                                <TextBlock x:Name="Ipv4CapabilityText" Text="IPv4 检测中" FontSize="9" Foreground="#64748B"/>
+                            </Border>
+                            <Border Background="#EFF6FF" CornerRadius="9" Padding="7,2">
+                                <TextBlock x:Name="Ipv6CapabilityText" Text="IPv6 检测中" FontSize="9" Foreground="#64748B"/>
+                            </Border>
+                        </WrapPanel>
+                        <StackPanel Spacing="1">
+                            <TextBlock x:Name="IpStatusText" Text="IP: --" Classes="metric"/>
+                            <TextBlock x:Name="GatewayStatusText" Text="网关: --" Classes="metric"/>
+                            <TextBlock x:Name="DnsStatusText" Text="DNS: --" Classes="metric"/>
+                            <TextBlock x:Name="Ipv6StatusText" Text="IPv6: --" Classes="metric"/>
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,4,*">
+                            <Button x:Name="DualStackTestButton" Content="双栈体检" Classes="secondary"
+                                    Click="OnDualStackTestButtonClick"/>
+                            <Button Grid.Column="2" x:Name="CopyDiagnosticsButton" Content="复制诊断"
+                                    Classes="secondary" Click="OnCopyDiagnosticsButtonClick"/>
+                        </Grid>
+                        <Border Height="1" Background="#E2E8F0" Margin="0,1"/>
+                        <Grid ColumnDefinitions="*,4,*">
+                            <Button x:Name="InternalPingButton" Content="校内测试" Classes="ghost"
+                                    Click="OnInternalPingButtonClick"/>
+                            <Button Grid.Column="2" x:Name="ExternalPingButton" Content="公网测试"
+                                    Classes="ghost" Click="OnExternalPingButtonClick"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,4,*" RowDefinitions="Auto,1,Auto">
+                            <TextBlock x:Name="InternalStatusText" Text="校内未检测" Classes="caption"/>
+                            <TextBlock Grid.Column="2" x:Name="ExternalStatusText" Text="公网未检测" Classes="caption"/>
+                            <TextBlock Grid.Row="2" x:Name="Ipv4ProbeText" Text="IPv4 未检测" Classes="caption"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" x:Name="Ipv6ProbeText" Text="IPv6 未检测" Classes="caption"/>
+                        </Grid>
+                        <!-- 详细值仍参与“复制诊断”，但不占用主界面空间。 -->
+                        <Panel IsVisible="False">
+                            <TextBlock x:Name="MacStatusText" Text="MAC: --"/>
+                            <TextBlock x:Name="Ipv6GatewayStatusText" Text="IPv6 网关: --"/>
+                            <TextBlock x:Name="Ipv6DnsStatusText" Text="IPv6 DNS: --"/>
+                        </Panel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

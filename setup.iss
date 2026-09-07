@@ -1,14 +1,14 @@
-; Drcom NET - Inno Setup 安装脚本 (NativeAOT)
-; 无需 .NET 运行时，单文件原生可执行程序
+; DrCom Campus - Inno Setup 安装脚本 (NativeAOT)
+; 无需 .NET 运行时的 NativeAOT 应用
 ;
 ; 构建流程:
-;   1. dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -o publish_aot
+;   1. dotnet publish DrComCampus/DrComCampus.csproj -c Release -o publish_aot
 ;   2. ISCC.exe setup.iss
 
-#define MyAppName "校园网登录"
-#define MyAppVersion "1.0.5"
-#define MyAppPublisher "Drcom NET"
-#define MyAppExeName "DrcomNET.exe"
+#define MyAppName "DrCom 校园网助手"
+#define MyAppVersion "1.0.6"
+#define MyAppPublisher "ZincGluxx"
+#define MyAppExeName "DrComCampus.exe"
 #define MyAppId "{{9E8C5B2A-1F3D-4A6B-8C7D-9E0F1A2B3C4D}"
 
 [Setup]
@@ -20,16 +20,19 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=.
-OutputBaseFilename=DrcomNET_v{#MyAppVersion}_Setup
+OutputBaseFilename=DrComCampus_v{#MyAppVersion}_Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
-SetupIconFile=CampusNetworkLogin\Resources\icon.ico
+SetupIconFile=DrComCampus\Resources\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
+VersionInfoDescription={#MyAppName}
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
@@ -38,9 +41,12 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescription: "附加选项："
 
 [Files]
-Source: "publish_aot\DrcomNET.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "publish_aot\DrComCampus.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "publish_aot\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "publish_aot\Resources\icon.ico"; DestDir: "{app}\Resources"; Flags: ignoreversion
+
+[InstallDelete]
+Type: files; Name: "{app}\DrcomNET.exe"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -62,8 +68,12 @@ begin
     if MsgBox('检测到已安装的旧版本，是否先卸载旧版本再安装新版本？' + #13#10 +
               '选择"否"将直接覆盖安装。', mbConfirmation, MB_YESNO) = IDYES then
     begin
-      Result := False;
-      Exec(ExpandConstant('{uninstallexe}'), '/SILENT', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+      if not Exec(ExpandConstant('{uninstallexe}'), '/SILENT', '', SW_SHOW,
+                  ewWaitUntilTerminated, ResultCode) then
+      begin
+        MsgBox('无法启动旧版本卸载程序，请手动卸载后重试。', mbError, MB_OK);
+        Result := False;
+      end;
     end;
   end;
 end;
@@ -74,9 +84,14 @@ var
   ResultCode: Integer;
 begin
   Result := '';
-  if CheckForMutexes('DrcomNET-SingleInstance') then
+  if CheckForMutexes('DrComCampus-SingleInstance') or CheckForMutexes('DrcomNET-SingleInstance') then
   begin
-    Exec(ExpandConstant('{cmd}'), '/C taskkill /IM {#MyAppExeName} /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{cmd}'), '/C taskkill /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{cmd}'), '/C taskkill /IM DrcomNET.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Sleep(500);
+    if CheckForMutexes('DrComCampus-SingleInstance') then
+      Exec(ExpandConstant('{cmd}'), '/C taskkill /IM {#MyAppExeName} /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    if CheckForMutexes('DrcomNET-SingleInstance') then
+      Exec(ExpandConstant('{cmd}'), '/C taskkill /IM DrcomNET.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;

@@ -1,4 +1,4 @@
-# Drcom .NET for JLU
+# DrCom 校园网助手
 
 [![Release](https://img.shields.io/github/v/release/ZincGluxx/drcom-net-client?style=flat-square&color=blue)](https://github.com/ZincGluxx/drcom-net-client/releases/latest)
 [![C#](https://img.shields.io/badge/Language-C%23-239120?style=flat-square&logo=c-sharp&logoColor=white)](https://docs.microsoft.com/en-us/dotnet/csharp/)
@@ -6,7 +6,7 @@
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)]()
 [![Avalonia](https://img.shields.io/badge/UI-Avalonia-8B5CF6?style=flat-square)](https://avaloniaui.net/)
 
-一款基于 **.NET** 与 **Avalonia** 开发的吉林大学 (JLU) 校园网 Dr.COM 登录客户端。经过重新设计，现已升级为面向日常使用的校园网登录面板，集成认证、保活、网络诊断、托盘守护与 Native AOT 发布。
+一款基于 **.NET** 与 **Avalonia** 开发的吉林大学（JLU）校园网 Dr.COM 登录客户端，集成认证、保活、双栈网络诊断、托盘守护与 NativeAOT 发布。
 
 👉 **[点击这里跳转到 Latest Release 下载最新安装包](https://github.com/ZincGluxx/drcom-net-client/releases/latest)**
 
@@ -20,6 +20,7 @@
 * **登录前检查**：登录前校验账号、密码和本机网络信息，减少无意义的认证重试。
 * **托盘级静默守护**：支持开机自启、自动登录、关闭到托盘、托盘登录/下线/刷新网络信息，并利用异步 Socket 循环发送心跳包保活。
 * **原生 AOT 版 (Native AOT)**：纯正的本机代码版本，启动迅速，零外部运行时依赖。
+* **低占用渲染**：静态登录界面默认使用软件渲染，避免常驻 ANGLE 与显卡驱动栈；特殊设备可通过 `--hardware-rendering` 切回 GPU。
 
 ## 🚀 编译与构建
 
@@ -34,10 +35,10 @@
 在项目根目录运行：
 
 ```powershell
-dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -r win-x64 -o artifacts/publish_aot -p:PublishAot=true -p:SelfContained=true
+dotnet publish DrComCampus/DrComCampus.csproj -c Release -r win-x64 -o publish_aot -p:PublishAot=true -p:SelfContained=true
 ```
 
-构建成功后，发布文件位于 `artifacts/publish_aot/`。
+构建成功后，发布文件位于 `publish_aot/`。
 
 ### 3. 构建安装包
 
@@ -48,29 +49,37 @@ dotnet publish CampusNetworkLogin/CampusNetworkLogin.csproj -c Release -r win-x6
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
 ```
 
-3. 编译完成后生成 `DrcomNET_v1.0.5_Setup.exe`。
+3. 编译完成后生成 `DrComCampus_v1.0.6_Setup.exe`。
 
 ## 📂 项目结构
 
 ```
-CampusNetworkLogin/
-├── Views/         # Avalonia 界面 (MainWindow / NetworkSettingsWindow)
-├── Services/      # 核心服务 (DrcomAuthService, ConfigService, AutoStartService, NetworkInfo/SettingsService)
+DrComCampus/
+├── Views/         # Avalonia 界面（CampusLoginWindow / StaticIpv4SettingsWindow）
+├── Services/      # 核心服务（DrComAuthenticationService / ConfigurationService 等）
 ├── Helpers/       # 辅助工具 (PrivacyHelper)
-├── Models/        # 配置模型 (ConfigModel, AppJsonContext)
+├── Models/        # 配置模型（AppConfiguration）
 ├── Resources/     # 应用图标
 └── Program.cs     # 入口 + NamedPipe 多实例激活
+DrComCampus.sln    # 解决方案
 setup.iss          # Inno Setup 安装脚本 (旧版检测/自动关闭/64位)
 ```
 
 ## 📝 更新日志
 
+### v1.0.6 (2026-09)
+- 🧹 **全项目规范化**：统一解决方案、工程、命名空间、程序集、窗口、托盘与安装包名称为 `DrComCampus` / “DrCom 校园网助手”。
+- ⚙️ **运行时减负**：移除无人订阅的认证日志事件和重连循环字符串分配，规范取消与资源释放路径。
+- 🔐 **可靠性与安全审计**：加强账号边界校验、配置密码内存清理和静态网络命令参数编码。
+- 🔄 **平滑升级**：保留原安装标识并自动迁移旧版配置；安装时清理旧可执行文件与开机启动项。
+- 📐 **紧凑界面**：保持单页 4:3 布局，修复静态网络窗口溢出并减少留白。
+
 ### v1.0.5 (2026-07)
 - 🧠 **内存优化**：保活阶段 Socket 接收缓冲区复用，消除每 20s 循环内多次 1KB 重复分配；日志 StringBuilder 限制 4KB 上限防止无限增长。
 - 🔌 **事件泄漏修复**：`NetworkChange.NetworkAvailabilityChanged` 在窗口关闭时正确退订，避免持有引用泄漏。
-- 🎨 **UI 紧凑化**：压缩 MainWindow 各区域 Margin/Padding/Spacing，窗口高度 450→435，内容更充实。
+- 🎨 **UI 紧凑化**：压缩主窗口各区域 Margin/Padding/Spacing，窗口高度 450→435，内容更充实。
 - 🔐 **密码显隐切换**：密码框右侧新增"显示/隐藏"按钮，兼容 Avalonia 12.0.3（无需 `RevealButtonEnabled`）。
-- 📐 **NetworkSettingsWindow 修复**：按钮添加 `HorizontalAlignment="Stretch"` 确保等宽拉伸，修复不同 DPI 下错位。
+- 📐 **静态网络窗口修复**：按钮添加 `HorizontalAlignment="Stretch"` 确保等宽拉伸，修复不同 DPI 下错位。
 - 🔵 **步骤指示器修正**：登录步骤指示器（挑战→认证→保活）时序调整，连接成功后保持全绿完成状态可见。
 - 📦 **安装脚本升级**：新增旧版检测卸载提示、安装前自动关闭运行中程序、`x64compatible` 架构标识。
 

@@ -1,48 +1,54 @@
 using System;
 using System.IO;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using CampusNetworkLogin.Models;
+using DrComCampus.Models;
 
-namespace CampusNetworkLogin.Services;
+namespace DrComCampus.Services;
 
 /// <summary>
 /// 配置读写服务 - 使用JSON文件存储，密码加密，原生异步IO
 /// </summary>
-public class ConfigService
+internal sealed class ConfigurationService
 {
     private readonly string _configDir;
     private readonly string _configPath;
-    private static readonly byte[] Entropy = [0x43, 0x61, 0x6D, 0x70, 0x75, 0x73, 0x4E, 0x65, 0x74]; // "CampusNet"
+    private readonly string _legacyConfigPath;
+    private static readonly byte[] s_entropy = [0x43, 0x61, 0x6D, 0x70, 0x75, 0x73, 0x4E, 0x65, 0x74]; // "CampusNet"
+    private static readonly DrComCampus.Helpers.AppJsonContext s_serializerContext =
+        new(new JsonSerializerOptions { WriteIndented = true });
 
-    public ConfigService()
+    public ConfigurationService()
     {
-        _configDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CampusNetworkLogin");
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        _configDir = Path.Combine(localAppData, "DrComCampus");
         _configPath = Path.Combine(_configDir, "config.json");
+        _legacyConfigPath = Path.Combine(localAppData, "CampusNetworkLogin", "config.json");
     }
 
     /// <summary>
     /// 异步加载配置
     /// </summary>
-    public async Task<ConfigModel> LoadAsync()
+    public async Task<AppConfiguration> LoadAsync()
     {
         try
         {
-            if (!File.Exists(_configPath))
-                return new ConfigModel();
+            var readPath = File.Exists(_configPath) ? _configPath : _legacyConfigPath;
+            if (!File.Exists(readPath))
+            {
+                return new AppConfiguration();
+            }
 
             string json;
-            using (var stream = new FileStream(_configPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true))
+            using (var stream = new FileStream(readPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true))
             using (var reader = new StreamReader(stream, Encoding.UTF8))
             {
                 json = await reader.ReadToEndAsync().ConfigureAwait(false);
             }
 
-            var config = JsonSerializer.Deserialize(json, CampusNetworkLogin.Helpers.AppJsonContext.Default.ConfigModel) ?? new ConfigModel();
+            var config = JsonSerializer.Deserialize(json, s_serializerContext.AppConfiguration) ?? new AppConfiguration();
 
             // 解密密码
             if (!string.IsNullOrEmpty(config.Password))
@@ -50,8 +56,9 @@ public class ConfigService
                 try
                 {
                     var encrypted = Convert.FromBase64String(config.Password);
-                    var decrypted = ProtectedData.Unprotect(encrypted, Entropy, DataProtectionScope.CurrentUser);
+                    var decrypted = ProtectedData.Unprotect(encrypted, s_entropy, DataProtectionScope.CurrentUser);
                     config.Password = Encoding.UTF8.GetString(decrypted);
+                    CryptographicOperations.ZeroMemory(decrypted);
                 }
                 catch
                 {
@@ -59,26 +66,36 @@ public class ConfigService
                 }
             }
 
+            if (readPath == _legacyConfigPath)
+            {
+                try { await SaveAsync(config).ConfigureAwait(false); }
+                catch { /* 迁移失败时仍返回已读取的旧配置 */ }
+            }
+
             return config;
         }
         catch
         {
-            return new ConfigModel();
+            return new AppConfiguration();
         }
     }
 
     /// <summary>
     /// 异步保存配置
     /// </summary>
-    public async Task SaveAsync(ConfigModel config)
+    public async Task SaveAsync(AppConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(config);
+
         try
         {
             if (!Directory.Exists(_configDir))
+            {
                 Directory.CreateDirectory(_configDir);
+            }
 
             // 加密密码后保存
-            var configToSave = new ConfigModel
+            var configToSave = new AppConfiguration
             {
                 Server = config.Server,
                 Username = config.Username,
@@ -90,6 +107,7 @@ public class ConfigService
                 PrimaryDns = config.PrimaryDns,
                 DhcpServer = config.DhcpServer,
                 AutoLogin = config.AutoLogin,
+                AutoReconnect = config.AutoReconnect,
                 StartWithWindows = config.StartWithWindows,
                 MinimizeToTray = config.MinimizeToTray,
             };
@@ -97,12 +115,18 @@ public class ConfigService
             if (!string.IsNullOrEmpty(config.Password))
             {
                 var plainBytes = Encoding.UTF8.GetBytes(config.Password);
-                var encrypted = ProtectedData.Protect(plainBytes, Entropy, DataProtectionScope.CurrentUser);
-                configToSave.Password = Convert.ToBase64String(encrypted);
+                try
+                {
+                    var encrypted = ProtectedData.Protect(plainBytes, s_entropy, DataProtectionScope.CurrentUser);
+                    configToSave.Password = Convert.ToBase64String(encrypted);
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(plainBytes);
+                }
             }
 
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var json = JsonSerializer.Serialize(configToSave, typeof(ConfigModel), new CampusNetworkLogin.Helpers.AppJsonContext(options));
+            var json = JsonSerializer.Serialize(configToSave, s_serializerContext.AppConfiguration);
             var tempPath = _configPath + ".tmp";
 
             using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
@@ -112,9 +136,13 @@ public class ConfigService
             }
 
             if (File.Exists(_configPath))
+            {
                 File.Replace(tempPath, _configPath, null);
+            }
             else
+            {
                 File.Move(tempPath, _configPath);
+            }
         }
         catch (Exception ex)
         {

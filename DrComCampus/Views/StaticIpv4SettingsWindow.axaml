@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="430" d:DesignHeight="520"
+        Width="430" Height="520" MinWidth="400" MinHeight="470"
+        CanResize="True"
+        x:Class="DrComCampus.Views.StaticIpv4SettingsWindow"
+        Title="IPv4 静态网络设置"
+        WindowStartupLocation="CenterOwner"
+        Background="#F1F5F9"
+        FontFamily="system-ui, 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', sans-serif">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.caption">
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="11,7"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#F8FAFC"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+    </Window.Styles>
+
+    <Border Margin="14" Padding="18" Background="#FFFFFF" BorderBrush="#E2E8F0"
+            BorderThickness="1" CornerRadius="12">
+        <Grid RowDefinitions="Auto,14,*,10,Auto,10,Auto">
+            <StackPanel Grid.Row="0" Spacing="4">
+                <TextBlock Text="IPv4 静态网络设置" FontSize="17" FontWeight="SemiBold" Foreground="#0F172A"/>
+                <TextBlock x:Name="AdapterNameText" Text="网卡: --" Classes="caption" TextTrimming="CharacterEllipsis"/>
+                <Border Background="#EFF6FF" CornerRadius="7" Padding="9,6" Margin="0,5,0,0">
+                    <TextBlock Text="仅修改 IPv4；IPv6 将继续由校园网自动分配，不会被关闭。"
+                               Foreground="#1D4ED8" FontSize="11" TextWrapping="Wrap"/>
+                </Border>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="10" Margin="0,0,5,0">
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="IPv4 地址" Classes="label"/>
+                        <TextBox x:Name="IpAddressTextBox" PlaceholderText="例如 10.0.0.10"/>
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="子网掩码" Classes="label"/>
+                        <TextBox x:Name="SubnetMaskTextBox" PlaceholderText="例如 255.255.255.0"/>
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="默认网关" Classes="label"/>
+                        <TextBox x:Name="GatewayTextBox" PlaceholderText="例如 10.0.0.1"/>
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="首选 IPv4 DNS" Classes="label"/>
+                        <TextBox x:Name="DnsServerTextBox" PlaceholderText="例如 10.10.10.10"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <TextBlock Grid.Row="4" x:Name="ValidationErrorText" Text="" Foreground="#DC2626"
+                       FontSize="12" TextWrapping="Wrap" MaxHeight="44"/>
+
+            <Grid Grid.Row="6" ColumnDefinitions="*,10,1.35*">
+                <Button Grid.Column="0" Content="取消" HorizontalAlignment="Stretch" Click="OnCancelButtonClick"/>
+                <Button Grid.Column="2" Content="应用 IPv4 设置" Classes="primary"
+                        HorizontalAlignment="Stretch" Click="OnApplyButtonClick"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

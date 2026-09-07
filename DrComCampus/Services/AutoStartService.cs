@@ -2,25 +2,30 @@ using System;
 using System.IO;
 using Microsoft.Win32;
 
-namespace CampusNetworkLogin.Services;
+namespace DrComCampus.Services;
 
 /// <summary>
 /// 开机启动管理服务
 /// </summary>
-public class AutoStartService
+internal static class AutoStartService
 {
     private const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string AppName = "CampusNetworkLogin";
+    private const string AppName = "DrComCampus";
+    private const string LegacyAppName = "CampusNetworkLogin";
 
     /// <summary>
     /// 检查是否已设置开机启动
     /// </summary>
-    public bool IsEnabled()
+    public static bool IsEnabled()
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
-            if (key == null) return false;
+            if (key == null)
+            {
+                return false;
+            }
+
             var value = key.GetValue(AppName) as string;
             return !string.IsNullOrEmpty(value) &&
                    Unquote(value).Equals(GetExecutablePath(), StringComparison.OrdinalIgnoreCase);
@@ -34,25 +39,31 @@ public class AutoStartService
     /// <summary>
     /// 设置或取消开机启动
     /// </summary>
-    public void SetEnabled(bool enable)
+    public static void SetEnabled(bool enabled)
     {
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath, true);
-            if (key == null) return;
+            if (key == null)
+            {
+                return;
+            }
 
-            if (enable)
+            if (enabled)
             {
                 var executablePath = GetExecutablePath();
                 if (string.IsNullOrWhiteSpace(executablePath))
+                {
                     throw new InvalidOperationException("无法获取当前程序路径");
+                }
 
                 key.SetValue(AppName, $"\"{executablePath}\"", RegistryValueKind.String);
+                key.DeleteValue(LegacyAppName, throwOnMissingValue: false);
             }
             else
             {
-                if (key.GetValue(AppName) != null)
-                    key.DeleteValue(AppName);
+                key.DeleteValue(AppName, throwOnMissingValue: false);
+                key.DeleteValue(LegacyAppName, throwOnMissingValue: false);
             }
         }
         catch (Exception ex)
