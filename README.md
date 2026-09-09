@@ -49,7 +49,7 @@ dotnet publish DrComCampus/DrComCampus.csproj -c Release -r win-x64 -o publish_a
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
 ```
 
-3. 编译完成后生成 `DrComCampus_v1.0.6_Setup.exe`。
+3. 编译完成后生成 `DrComCampus_v1.0.7_Setup.exe`。
 
 ## 📂 项目结构
 
@@ -66,6 +66,12 @@ setup.iss          # Inno Setup 安装脚本 (旧版检测/自动关闭/64位)
 ```
 
 ## 📝 更新日志
+
+### v1.0.7 (2026-09)
+- 🌐 **物理网卡优先**：只检测真实有线或无线网卡，彻底排除 Hyper-V、VMware、WSL、VPN、TAP/TUN 等虚拟接口。
+- 🔌 **有线优先策略**：优先选择已连接且具有有效 IPv4 的物理有线网卡；无可用有线连接时才使用真实无线网卡。
+- 🧭 **路由辅助判断**：调用 Windows 路由接口核对认证服务器的最佳出口，避免受系统网卡枚举顺序影响。
+- 🛡️ **安全失败**：真实网卡均不可用时明确返回未就绪状态，不再回退或绑定虚拟网卡。
 
 ### v1.0.6 (2026-09)
 - 🧹 **全项目规范化**：统一解决方案、工程、命名空间、程序集、窗口、托盘与安装包名称为 `DrComCampus` / “DrCom 校园网助手”。

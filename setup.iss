@@ -6,7 +6,7 @@
 ;   2. ISCC.exe setup.iss
 
 #define MyAppName "DrCom 校园网助手"
-#define MyAppVersion "1.0.6"
+#define MyAppVersion "1.0.7"
 #define MyAppPublisher "ZincGluxx"
 #define MyAppExeName "DrComCampus.exe"
 #define MyAppId "{{9E8C5B2A-1F3D-4A6B-8C7D-9E0F1A2B3C4D}"
