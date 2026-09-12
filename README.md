@@ -49,7 +49,7 @@ dotnet publish DrComCampus/DrComCampus.csproj -c Release -r win-x64 -o publish_a
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
 ```
 
-3. 编译完成后生成 `DrComCampus_v1.0.7_Setup.exe`。
+3. 编译完成后生成 `DrComCampus_v1.0.8_Setup.exe`。
 
 ## 📂 项目结构
 
@@ -66,6 +66,12 @@ setup.iss          # Inno Setup 安装脚本 (旧版检测/自动关闭/64位)
 ```
 
 ## 📝 更新日志
+
+### v1.0.8 (2026-09)
+- 📡 **原版保活状态机**：按主保活、Type 1、Type 3 的响应顺序推进序号，避免保活阶段错位导致直播断流。
+- 🛡️ **丢包容错**：超时后重发当前阶段并保留最后一个有效会话尾码，不再把一次 UDP 丢包扩大为持续掉线。
+- 🔒 **认证流量固定出口**：UDP 套接字绑定已检测到的真实物理网卡 IPv4，并过滤非认证服务器来源的数据包。
+- 🔄 **持续自动恢复**：断线后采用有上限的指数退避持续重连，不再尝试三次后永久停止。
 
 ### v1.0.7 (2026-09)
 - 🌐 **物理网卡优先**：只检测真实有线或无线网卡，彻底排除 Hyper-V、VMware、WSL、VPN、TAP/TUN 等虚拟接口。

@@ -61,9 +61,10 @@ internal sealed class DrComAuthenticationService : IDisposable
     private bool _wasConnected;
     private bool _isReconnecting;
     private int _reconnectAttempts;
-    private const int MaxReconnectAttempts = 3;
     private const int BaseReconnectDelayMs = 3000;
     private const int MaxReconnectDelayMs = 60000;
+    private const int KeepAliveIntervalMs = 20000;
+    private const int KeepAliveRetryLimit = 3;
 
     public bool IsLoggedIn => _loggedIn;
     public bool IsRunning => _running;
@@ -199,23 +200,14 @@ internal sealed class DrComAuthenticationService : IDisposable
     {
         while (!token.IsCancellationRequested)
         {
-            // 重连模式下检查重试次数
             if (_isReconnecting)
             {
-                if (_reconnectAttempts >= MaxReconnectAttempts)
-                {
-                    ReportError($"重连失败：已尝试 {MaxReconnectAttempts} 次，放弃重连");
-                    _isReconnecting = false;
-                    _reconnectAttempts = 0;
-                    _running = false;
-                    ConnectionStatusChanged?.Invoke(ConnectionStatus.Disconnected);
-                    break;
-                }
-
-                var delay = Math.Min(BaseReconnectDelayMs * (1 << _reconnectAttempts), MaxReconnectDelayMs);
+                // 原版会持续恢复连接。指数只用于前几次，之后固定每分钟尝试，避免忙循环。
+                var exponent = Math.Min(_reconnectAttempts, 4);
+                var delay = Math.Min(BaseReconnectDelayMs * (1 << exponent), MaxReconnectDelayMs);
                 try { DelayWithCancellation(delay, token); }
                 catch (OperationCanceledException) { break; }
-                _reconnectAttempts++;
+                _reconnectAttempts = Math.Min(_reconnectAttempts + 1, 5);
             }
 
             try
@@ -241,12 +233,6 @@ internal sealed class DrComAuthenticationService : IDisposable
 
                 DrainSocketReceiveBuffer();
                 LoginStepChanged?.Invoke(LoginStep.KeepAlive);
-                SendPrimaryKeepAlive(_salt, _tail, _password, token);
-                if (token.IsCancellationRequested)
-                {
-                    break;
-                }
-
                 RunKeepAliveLoop(_salt, _tail, _password, token);
             }
             catch (OperationCanceledException) { break; }
@@ -400,215 +386,140 @@ internal sealed class DrComAuthenticationService : IDisposable
 
     private void SendPrimaryKeepAlive(byte[] salt, byte[] tail, string password, CancellationToken token)
     {
-        var foo = BitConverter.GetBytes((ushort)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 0xFFFF));
-        if (BitConverter.IsLittleEndian)
+        for (var attempt = 0; attempt < KeepAliveRetryLimit; attempt++)
         {
-            Array.Reverse(foo);
+            var foo = BitConverter.GetBytes((ushort)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 0xFFFF));
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(foo);
+            }
+
+            var md5Input = new byte[] { 0x03, 0x01 };
+            md5Input = [.. md5Input, .. salt, .. Encoding.ASCII.GetBytes(password)];
+            var md51 = MD5.HashData(md5Input);
+
+            var packet = new byte[1 + 16 + 3 + tail.Length + foo.Length + 4];
+            var pos = 0;
+            packet[pos++] = 0xFF;
+            Array.Copy(md51, 0, packet, pos, 16); pos += 16;
+            packet[pos++] = 0x00; packet[pos++] = 0x00; packet[pos++] = 0x00;
+            Array.Copy(tail, 0, packet, pos, tail.Length); pos += tail.Length;
+            Array.Copy(foo, 0, packet, pos, foo.Length);
+
+            SendPacket(packet);
+            if (TryReceiveExpected(static (buffer, length) => length > 0 && buffer[0] == 0x07, out _, token))
+            {
+                return;
+            }
         }
 
-        var md5Input = new byte[] { 0x03, 0x01 };
-        md5Input = [.. md5Input, .. salt, .. Encoding.ASCII.GetBytes(password)];
-        var md51 = MD5.HashData(md5Input);
-
-        var packet = new byte[1 + 16 + 3 + tail.Length + foo.Length + 4];
-        int pos = 0;
-        packet[pos++] = 0xFF;
-        Array.Copy(md51, 0, packet, pos, 16); pos += 16;
-        packet[pos++] = 0x00; packet[pos++] = 0x00; packet[pos++] = 0x00;
-        Array.Copy(tail, 0, packet, pos, tail.Length); pos += tail.Length;
-        Array.Copy(foo, 0, packet, pos, foo.Length); _ = foo.Length;
-
-        SendPacket(packet);
-
-        // 尽力等待确认：部分 Dr.COM 服务器对 FF 保活包不单独确认，超时不视为断线
-        try
-        {
-            _ = ReceivePacket(token);
-        }
-        catch (TimeoutException)
-        {
-            // 无确认响应属正常，继续保活
-        }
+        throw new TimeoutException("主保活连续无响应");
     }
 
     private void RunKeepAliveLoop(byte[] salt, byte[] tail, string password, CancellationToken token)
     {
-        var serverSequence = 0;
-        var currentTail = new byte[4];
-
-        // Step 1：确定服务器序号（容忍偶发超时，连续多次超时才判定失联）
-        var step1Misses = 0;
-        while (!token.IsCancellationRequested)
-        {
-            var packet = BuildKeepAlivePacket(serverSequence, currentTail, 1, serverSequence == 0);
-            SendPacket(packet);
-
-            if (!TryReceive(token, out var length))
-            {
-                if (++step1Misses > 5)
-                {
-                    throw new TimeoutException("保活握手无响应");
-                }
-
-                continue;
-            }
-            step1Misses = 0;
-
-            if (length >= 4 && _receiveBuffer[0] == 0x07 &&
-                (_receiveBuffer[1] == serverSequence || _receiveBuffer[1] == 0x00) && _receiveBuffer[2] == 0x28)
-            {
-                break;
-            }
-
-            if (length >= 3 && _receiveBuffer[0] == 0x07 && _receiveBuffer[2] == 0x10)
-            {
-                serverSequence++;
-                _ = BuildKeepAlivePacket(serverSequence, currentTail, 1, false);
-            }
-        }
-
-        // Step 2
-        if (token.IsCancellationRequested)
-        {
-            return;
-        }
-
-        var packet2 = BuildKeepAlivePacket(serverSequence, currentTail, 1, false);
-
-        SendPacket(packet2);
-
-        var recvLength2 = 0;
-        var step2Misses = 0;
-        while (!token.IsCancellationRequested)
-        {
-            if (!TryReceive(token, out recvLength2))
-            {
-                if (++step2Misses > 5)
-                {
-                    throw new TimeoutException("保活握手无响应");
-                }
-
-                continue;
-            }
-
-            if (recvLength2 > 0 && _receiveBuffer[0] == 0x07)
-            {
-                serverSequence++;
-                break;
-            }
-        }
-
-
-        Array.Clear(currentTail);
-        if (recvLength2 >= 20)
-        {
-            Array.Copy(_receiveBuffer, 16, currentTail, 0, 4);
-        }
-
-
-        // Step 3
-        if (token.IsCancellationRequested)
-        {
-            return;
-        }
-
-        var packet3 = BuildKeepAlivePacket(serverSequence, currentTail, 3, false);
-
-        SendPacket(packet3);
-
-        var recvLength3 = 0;
-        var step3Misses = 0;
-        while (!token.IsCancellationRequested)
-        {
-            if (!TryReceive(token, out recvLength3))
-            {
-                if (++step3Misses > 5)
-                {
-                    throw new TimeoutException("保活握手无响应");
-                }
-
-                continue;
-            }
-
-            if (recvLength3 > 0 && _receiveBuffer[0] == 0x07)
-            {
-                serverSequence++;
-                break;
-            }
-        }
-
-
-        Array.Clear(currentTail);
-        if (recvLength3 >= 20)
-        {
-            Array.Copy(_receiveBuffer, 16, currentTail, 0, 4);
-        }
-
-
-        // 持续保活循环
-
-        var sequenceNumber = serverSequence;
-        var failureCount = 0;
-
+        var restartCount = 0;
         while (!token.IsCancellationRequested)
         {
             try
             {
-                var primaryPacket = BuildKeepAlivePacket(sequenceNumber, currentTail, 1, false);
-
-                SendPacket(primaryPacket);
-
-                if (TryReceive(token, out var receiveLength) && receiveLength >= 20)
-                {
-                    Array.Copy(_receiveBuffer, 16, currentTail, 0, 4);
-                }
-                else
-                {
-                    Array.Clear(currentTail);
-                }
-
-                var secondaryPacket = BuildKeepAlivePacket(sequenceNumber + 1, currentTail, 3, false);
-
-                SendPacket(secondaryPacket);
-
-                if (TryReceive(token, out var receiveLength2) && receiveLength2 >= 20)
-                {
-                    Array.Copy(_receiveBuffer, 16, currentTail, 0, 4);
-                }
-                else
-                {
-                    Array.Clear(currentTail);
-                }
-
-                sequenceNumber = (sequenceNumber + 2) % 0xFF;
-
-                for (int w = 0; w < 20 && !token.IsCancellationRequested; w++)
-                {
-                    DelayWithCancellation(1000, token);
-                }
-
-                if (!token.IsCancellationRequested)
-                {
-                    SendPrimaryKeepAlive(salt, tail, password, token);
-                }
-
-                failureCount = 0;
+                RunKeepAliveSession(salt, tail, password, () => restartCount = 0, token);
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
-            catch (Exception)
+            catch (TimeoutException)
             {
-                // 仅网络层/发送异常（断网、网卡重置等）才累计并触发重连；接收超时已由 TryReceive 容错
-                failureCount++;
-                if (failureCount > 3)
+                if (++restartCount >= KeepAliveRetryLimit)
                 {
                     throw;
                 }
 
+                // 原版客户端会从主保活重新同步，而不是沿用可能错位的阶段继续发送。
+                DrainSocketReceiveBuffer();
                 DelayWithCancellation(1000, token);
             }
+        }
+    }
+
+    private void RunKeepAliveSession(
+        byte[] salt,
+        byte[] sessionTail,
+        string password,
+        Action reportHealthyCycle,
+        CancellationToken token)
+    {
+        var sequence = 0;
+        var keepAliveTail = new byte[4];
+
+        SendPrimaryKeepAlive(salt, sessionTail, password, token);
+
+        _ = SendKeepAliveAndReceive(sequence, keepAliveTail, 1, true, true, token);
+        if (_receiveBuffer[2] == 0x10)
+        {
+            sequence = NextSequence(sequence);
+        }
+
+        var type1Length = SendKeepAliveAndReceive(sequence, keepAliveTail, 1, false, false, token);
+        sequence = NextSequence(sequence);
+        UpdateKeepAliveTail(keepAliveTail, type1Length);
+
+        var type3Length = SendKeepAliveAndReceive(sequence, keepAliveTail, 3, false, false, token);
+        UpdateKeepAliveTail(keepAliveTail, type3Length);
+        reportHealthyCycle();
+
+        while (!token.IsCancellationRequested)
+        {
+            DelayWithCancellation(KeepAliveIntervalMs, token);
+            SendPrimaryKeepAlive(salt, sessionTail, password, token);
+
+            // Dr.COM 在主保活确认后推进序号，并用登录会话尾码启动下一组 type2 保活。
+            sequence = NextSequence(sequence);
+            type1Length = SendKeepAliveAndReceive(sequence, sessionTail, 1, false, false, token);
+            sequence = NextSequence(sequence);
+            UpdateKeepAliveTail(keepAliveTail, type1Length);
+
+            type3Length = SendKeepAliveAndReceive(sequence, keepAliveTail, 3, false, false, token);
+            UpdateKeepAliveTail(keepAliveTail, type3Length);
+            reportHealthyCycle();
+        }
+    }
+
+    private int SendKeepAliveAndReceive(
+        int sequence,
+        byte[] packetTail,
+        int packetType,
+        bool isFirst,
+        bool requireHandshakeHeader,
+        CancellationToken token)
+    {
+        var packet = BuildKeepAlivePacket(sequence, packetTail, packetType, isFirst);
+        for (var attempt = 0; attempt < KeepAliveRetryLimit; attempt++)
+        {
+            SendPacket(packet);
+            if (TryReceiveExpected((buffer, length) =>
+                length >= (requireHandshakeHeader ? 4 : 20) &&
+                buffer[0] == 0x07 &&
+                (!requireHandshakeHeader ||
+                 (buffer[2] == 0x10 ||
+                  (buffer[2] == 0x28 && (buffer[1] == (byte)sequence || buffer[1] == 0x00)))), out var length, token))
+            {
+                return length;
+            }
+        }
+
+        throw new TimeoutException($"保活阶段 type{packetType} 连续无响应");
+    }
+
+    private static int NextSequence(int sequence) => (sequence + 1) & 0xFF;
+
+    private void UpdateKeepAliveTail(byte[] destination, int responseLength)
+    {
+        // 未收到完整响应时保留上一个有效尾码，禁止以全零尾码污染后续保活。
+        if (responseLength >= 20)
+        {
+            Array.Copy(_receiveBuffer, 16, destination, 0, 4);
         }
     }
 
@@ -815,7 +726,7 @@ internal sealed class DrComAuthenticationService : IDisposable
         _serverEndpoint ??= new IPEndPoint(ResolveServerIp(_serverAddress), ServerPort);
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        _socket.Bind(new IPEndPoint(IPAddress.Any, LocalPort));
+        _socket.Bind(new IPEndPoint(GetLocalBindAddress(), LocalPort));
         _socket.ReceiveTimeout = 3000;
         _socket.SendTimeout = 3000;
 
@@ -853,7 +764,13 @@ internal sealed class DrComAuthenticationService : IDisposable
             {
                 EndPoint ep = remoteEp;
                 var length = _socket.ReceiveFrom(_receiveBuffer, ref ep);
-                return length;
+                if (ep is IPEndPoint sender &&
+                    _serverEndpoint != null &&
+                    sender.Port == _serverEndpoint.Port &&
+                    sender.Address.Equals(_serverEndpoint.Address))
+                {
+                    return length;
+                }
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
             {
@@ -936,21 +853,29 @@ internal sealed class DrComAuthenticationService : IDisposable
         }
     }
 
-    /// <summary>
-    /// 尽力接收一次数据，超时不抛异常（用于保活阶段容错，避免偶发超时误判断线）
-    /// </summary>
-    private bool TryReceive(CancellationToken token, out int length)
+    private bool TryReceiveExpected(
+        Func<byte[], int, bool> predicate,
+        out int length,
+        CancellationToken token)
     {
-        try
+        while (!token.IsCancellationRequested)
         {
-            length = ReceivePacket(token);
-            return true;
+            try
+            {
+                length = ReceivePacket(token);
+                if (predicate(_receiveBuffer, length))
+                {
+                    return true;
+                }
+            }
+            catch (TimeoutException)
+            {
+                length = 0;
+                return false;
+            }
         }
-        catch (TimeoutException)
-        {
-            length = 0;
-            return false;
-        }
+
+        throw new OperationCanceledException(token);
     }
 
     /// <summary>
@@ -966,6 +891,16 @@ internal sealed class DrComAuthenticationService : IDisposable
         var addresses = Dns.GetHostAddresses(serverAddress);
         return addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
             ?? throw new InvalidOperationException($"无法解析认证服务器地址: {serverAddress}");
+    }
+
+    private IPAddress GetLocalBindAddress()
+    {
+        // 与原版的接口绑定/认证服务器主机路由作用一致：认证流量只能从选中的真实网卡发出。
+        return IPAddress.TryParse(_hostIpv4Address, out var address) &&
+               address.AddressFamily == AddressFamily.InterNetwork &&
+               !IPAddress.Any.Equals(address)
+            ? address
+            : IPAddress.Any;
     }
 
     private static byte[] RotatePasswordBytes(byte[] md5Data, byte[] passwordBytes)
