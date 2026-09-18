@@ -129,3 +129,11 @@ setup.iss          # Inno Setup 安装脚本 (旧版检测/自动关闭/64位)
 
 * 本项目的底层 Dr.COM 核心通信报文构造、加密 Hash 逻辑参考、复刻自现有的开源 Python 实现。
 * 本软件仅供学习、研究网络协议及 C# 桌面端开发之用。
+
+
+## 📄 许可
+
+本项目（含 Rust 版子项目 [drcom-rs](https://github.com/ZincGluxx/drcom-rs)）以
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)（署名—非商业性使用）授权，
+完整文本见 [LICENSE](LICENSE)。使用、修改、分享时请保留作者署名（ZincGlux），
+且不得用于商业目的。

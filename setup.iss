@@ -1,4 +1,4 @@
-; DrCom Campus - Inno Setup 安装脚本 (NativeAOT)
+﻿; DrCom Campus - Inno Setup 安装脚本 (NativeAOT)
 ; 无需 .NET 运行时的 NativeAOT 应用
 ;
 ; 构建流程:
@@ -6,7 +6,7 @@
 ;   2. ISCC.exe setup.iss
 
 #define MyAppName "DrCom 校园网助手"
-#define MyAppVersion "1.0.8"
+#define MyAppVersion "1.0.9"
 #define MyAppPublisher "ZincGluxx"
 #define MyAppExeName "DrComCampus.exe"
 #define MyAppId "{{9E8C5B2A-1F3D-4A6B-8C7D-9E0F1A2B3C4D}"

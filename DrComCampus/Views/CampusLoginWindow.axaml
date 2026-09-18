@@ -218,6 +218,10 @@
                     </StackPanel>
                 </Border>
             </Grid>
+
+            <!-- 版权署名（CC BY-NC 4.0）。 -->
+            <TextBlock Classes="caption" Text="© 2026 ZincGlux" HorizontalAlignment="Right"
+                       Margin="0,2,2,0"/>
         </StackPanel>
     </ScrollViewer>
 </Window>
